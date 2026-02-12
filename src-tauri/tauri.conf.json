@@ -1,0 +1,73 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "resource_monitor",
+  "version": "0.1.0",
+  "identifier": "com.ksun22515.resource_monitor",
+  "build": {
+    "beforeDevCommand": "pnpm dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "pnpm build",
+    "frontendDist": "../build"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Resource Monitor",
+        "width": 920,
+        "height": 560,
+        "minWidth": 760,
+        "minHeight": 460,
+        "decorations": false,
+        "skipTaskbar": true
+      },
+      {
+        "label": "taskbar",
+        "title": "Resource Monitor Taskbar",
+        "width": 560,
+        "height": 64,
+        "minWidth": 520,
+        "minHeight": 64,
+        "maxHeight": 64,
+        "resizable": false,
+        "visible": false,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "shadow": false,
+        "backgroundColor": "#00000000",
+        "transparent": true,
+        "skipTaskbar": true
+      },
+      {
+        "label": "floating",
+        "title": "Resource Monitor Floating",
+        "width": 360,
+        "height": 152,
+        "minWidth": 320,
+        "minHeight": 140,
+        "resizable": false,
+        "visible": false,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "shadow": false,
+        "backgroundColor": "#00000000",
+        "transparent": true,
+        "skipTaskbar": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  }
+}
