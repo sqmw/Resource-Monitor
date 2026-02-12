@@ -49,8 +49,9 @@
     border-bottom: 1px solid var(--card-border);
     background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(0, 0, 0, 0.15));
     padding: 0 0.35rem 0 0.8rem;
-    border-top-left-radius: 28px;
-    border-top-right-radius: 28px;
+    border-top-left-radius: 14px;
+    border-top-right-radius: 14px;
+    overflow: hidden;
   }
 
   .drag-area {

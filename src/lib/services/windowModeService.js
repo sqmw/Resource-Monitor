@@ -8,6 +8,7 @@ import {
   PhysicalSize,
   Window
 } from "@tauri-apps/api/window";
+import { DISPLAY_WINDOW_CONFIG } from "../config/displayConfig";
 
 const DISPLAY_MODE_STORAGE_KEY = "rm.displayMode";
 const DISPLAY_VISIBILITY_STORAGE_KEY = "rm.displayVisibility";
@@ -16,23 +17,6 @@ const CLICK_THROUGH_STORAGE_KEY = "rm.clickThrough";
 const LAYOUT_STORAGE_KEY = "rm.window.layout.v2";
 const EDGE_GAP = 8;
 const FLOATING_TOP_GAP = 52;
-
-const DISPLAY_CONFIG = {
-  taskbar: {
-    width: 560,
-    height: 64,
-    minWidth: 520,
-    minHeight: 64,
-    maxHeight: 64
-  },
-  floating: {
-    width: 360,
-    height: 152,
-    minWidth: 320,
-    minHeight: 140,
-    maxHeight: 220
-  }
-};
 
 /** @typedef {"taskbar" | "floating"} DisplayMode */
 /** @typedef {"auto" | "always" | "manual"} TopmostPolicy */
@@ -209,7 +193,7 @@ function clamp(value, min, max) {
  * @param {DisplayLayout | undefined} saved
  */
 function resolveWindowSize(mode, saved) {
-  const base = DISPLAY_CONFIG[mode];
+  const base = DISPLAY_WINDOW_CONFIG[mode];
   const width = clamp(saved?.width ?? base.width, base.minWidth, base.width);
   const maxHeight = base.maxHeight ?? base.height;
   const height = clamp(saved?.height ?? base.height, base.minHeight, maxHeight);
@@ -291,7 +275,7 @@ async function configureDisplayWindow(mode) {
   const windowRef = await getWindowByLabel(mode);
   if (!windowRef) return;
 
-  const base = DISPLAY_CONFIG[mode];
+  const base = DISPLAY_WINDOW_CONFIG[mode];
   await windowRef.setResizable(false);
   try {
     await windowRef.setFocusable(false);

@@ -70,7 +70,7 @@ pub fn run() {
 
             let app_handle = app.handle().clone();
             let toggle_menu_item = toggle_taskbar_positioning_item.clone();
-            TrayIconBuilder::new()
+            let mut tray_builder = TrayIconBuilder::new()
                 .menu(&tray_menu)
                 .tooltip("Resource Monitor")
                 .show_menu_on_left_click(false)
@@ -112,8 +112,13 @@ pub fn run() {
                     }
                     "quit_app" => app_handle.exit(0),
                     _ => {}
-                })
-                .build(app)?;
+                });
+
+            if let Some(default_icon) = app.default_window_icon().cloned() {
+                tray_builder = tray_builder.icon(default_icon);
+            }
+
+            tray_builder.build(app)?;
 
             Ok(())
         })

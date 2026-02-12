@@ -1,5 +1,7 @@
 export interface ResourceMetrics {
   cpuUsagePercent: number;
+  cpuLogicalCores: number;
+  cpuFrequencyMhz: number;
   memoryUsedBytes: number;
   memoryTotalBytes: number;
   swapUsedBytes: number;

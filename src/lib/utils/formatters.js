@@ -77,3 +77,12 @@ export function formatUptime(seconds) {
   if (days > 0) return `${days}d ${hours}h`;
   return `${hours}h ${minutes}m`;
 }
+
+/**
+ * @param {number} mhz
+ */
+export function formatCpuFrequency(mhz) {
+  const safe = Math.max(0, mhz);
+  if (safe <= 0) return "--";
+  return `${(safe / 1000).toFixed(2)} GHz`;
+}

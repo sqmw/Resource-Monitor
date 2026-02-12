@@ -6,6 +6,7 @@
   import ProgressTrack from "../lib/components/dashboard/ProgressTrack.svelte";
   import ThemePicker from "../lib/components/dashboard/ThemePicker.svelte";
   import SurfaceTuner from "../lib/components/dashboard/SurfaceTuner.svelte";
+  import TaskbarLayoutTuner from "../lib/components/dashboard/TaskbarLayoutTuner.svelte";
   import TopmostPolicyPicker from "../lib/components/dashboard/TopmostPolicyPicker.svelte";
   import LanguagePicker from "../lib/components/dashboard/LanguagePicker.svelte";
   import ViewModePicker from "../lib/components/dashboard/ViewModePicker.svelte";
@@ -32,6 +33,7 @@
   import {
     formatCompactBytes,
     formatCompactRate,
+    formatCpuFrequency,
     formatBytes,
     formatPercent,
     formatRate,
@@ -39,6 +41,7 @@
     formatUptime
   } from "../lib/utils/formatters";
   import { LANGUAGES, VIEW_MODES, t } from "../lib/i18n/translations";
+  import { DEFAULT_TASKBAR_LAYOUT, DISPLAY_WINDOW_CONFIG } from "../lib/config/displayConfig";
 
   /** @typedef {import("../lib/types/monitor").MonitorSnapshot} MonitorSnapshot */
   /** @typedef {"zh" | "en"} Language */
@@ -58,6 +61,7 @@
     displayMode: "rm.displayMode",
     surfaceOpacity: "rm.surfaceOpacity",
     frostedBlur: "rm.frostedBlur",
+    taskbarLayout: "rm.taskbarLayout",
     topmostPolicy: "rm.topmostPolicy",
     clickThrough: "rm.clickThrough"
   };
@@ -73,6 +77,7 @@
   let selectedTheme = $state("aurora");
   let surfaceOpacity = $state(38);
   let frostedBlur = $state(16);
+  let taskbarLayout = $state({ ...DEFAULT_TASKBAR_LAYOUT });
   /** @type {TopmostPolicy} */
   let topmostPolicy = $state("auto");
   let clickThroughEnabled = $state(false);
@@ -87,6 +92,8 @@
   let cpuUsagePercent = $derived(snapshot?.resources?.cpuUsagePercent ?? 0);
   let memoryUsed = $derived(snapshot?.resources?.memoryUsedBytes ?? 0);
   let memoryTotal = $derived(snapshot?.resources?.memoryTotalBytes ?? 0);
+  let cpuLogicalCores = $derived(snapshot?.resources?.cpuLogicalCores ?? 0);
+  let cpuFrequencyMhz = $derived(snapshot?.resources?.cpuFrequencyMhz ?? 0);
   let swapUsed = $derived(snapshot?.resources?.swapUsedBytes ?? 0);
   let swapTotal = $derived(snapshot?.resources?.swapTotalBytes ?? 0);
   let diskUsed = $derived(snapshot?.resources?.diskUsedBytes ?? 0);
@@ -109,6 +116,21 @@
     }))
   );
 
+  /**
+   * @param {unknown} raw
+   */
+  function normalizeTaskbarLayout(raw) {
+    if (!raw || typeof raw !== "object") return { ...DEFAULT_TASKBAR_LAYOUT };
+    const value = /** @type {{ paddingX?: number; paddingY?: number; columnGap?: number; groupGap?: number; fontSize?: number }} */ (raw);
+    return {
+      paddingX: Math.max(2, Math.min(14, Math.round(value.paddingX ?? DEFAULT_TASKBAR_LAYOUT.paddingX))),
+      paddingY: Math.max(1, Math.min(10, Math.round(value.paddingY ?? DEFAULT_TASKBAR_LAYOUT.paddingY))),
+      columnGap: Math.max(2, Math.min(12, Math.round(value.columnGap ?? DEFAULT_TASKBAR_LAYOUT.columnGap))),
+      groupGap: Math.max(0, Math.min(20, Math.round(value.groupGap ?? DEFAULT_TASKBAR_LAYOUT.groupGap))),
+      fontSize: Math.max(10, Math.min(15, Math.round(value.fontSize ?? DEFAULT_TASKBAR_LAYOUT.fontSize)))
+    };
+  }
+
   function loadPreferences() {
     const savedTheme = localStorage.getItem(STORAGE_KEYS.theme);
     if (savedTheme && themes.some((theme) => theme.id === savedTheme)) {
@@ -126,6 +148,14 @@
     const savedBlur = Number(localStorage.getItem(STORAGE_KEYS.frostedBlur));
     if (Number.isFinite(savedBlur)) {
       frostedBlur = Math.max(0, Math.min(30, Math.round(savedBlur)));
+    }
+    try {
+      const savedTaskbarLayout = localStorage.getItem(STORAGE_KEYS.taskbarLayout);
+      if (savedTaskbarLayout) {
+        taskbarLayout = normalizeTaskbarLayout(JSON.parse(savedTaskbarLayout));
+      }
+    } catch {
+      taskbarLayout = { ...DEFAULT_TASKBAR_LAYOUT };
     }
     const savedTopmostPolicy = localStorage.getItem(STORAGE_KEYS.topmostPolicy);
     if (
@@ -156,7 +186,8 @@
       theme: selectedTheme,
       language: selectedLanguage,
       surfaceOpacity,
-      frostedBlur
+      frostedBlur,
+      taskbarLayout
     });
   }
 
@@ -194,6 +225,43 @@
     frostedBlur = Math.max(0, Math.min(30, Math.round(value)));
     persistPreference(STORAGE_KEYS.frostedBlur, String(frostedBlur));
     void broadcastPreferences();
+  }
+
+  /**
+   * @param {{ paddingX?: number; paddingY?: number; columnGap?: number; groupGap?: number; fontSize?: number }} patch
+   */
+  function updateTaskbarLayout(patch) {
+    taskbarLayout = normalizeTaskbarLayout({ ...taskbarLayout, ...patch });
+    persistPreference(STORAGE_KEYS.taskbarLayout, JSON.stringify(taskbarLayout));
+    void broadcastPreferences();
+  }
+
+  /**
+   * @param {number} value
+   */
+  function selectTaskbarPaddingX(value) {
+    updateTaskbarLayout({ paddingX: value });
+  }
+
+  /**
+   * @param {number} value
+   */
+  function selectTaskbarColumnGap(value) {
+    updateTaskbarLayout({ columnGap: value });
+  }
+
+  /**
+   * @param {number} value
+   */
+  function selectTaskbarGroupGap(value) {
+    updateTaskbarLayout({ groupGap: value });
+  }
+
+  /**
+   * @param {number} value
+   */
+  function selectTaskbarFontSize(value) {
+    updateTaskbarLayout({ fontSize: value });
   }
 
   /**
@@ -243,7 +311,7 @@
   }
 
   /**
-   * @param {{ theme?: string; language?: string; surfaceOpacity?: number; frostedBlur?: number } | null | undefined} payload
+   * @param {{ theme?: string; language?: string; surfaceOpacity?: number; frostedBlur?: number; taskbarLayout?: { paddingX?: number; paddingY?: number; columnGap?: number; groupGap?: number; fontSize?: number } } | null | undefined} payload
    */
   function applyPreferencePayload(payload) {
     if (!payload || typeof payload !== "object") return;
@@ -268,6 +336,11 @@
     if (typeof payload.frostedBlur === "number" && Number.isFinite(payload.frostedBlur)) {
       frostedBlur = Math.max(0, Math.min(30, Math.round(payload.frostedBlur)));
       persistPreference(STORAGE_KEYS.frostedBlur, String(frostedBlur));
+    }
+
+    if (payload.taskbarLayout && typeof payload.taskbarLayout === "object") {
+      taskbarLayout = normalizeTaskbarLayout(payload.taskbarLayout);
+      persistPreference(STORAGE_KEYS.taskbarLayout, JSON.stringify(taskbarLayout));
     }
   }
 
@@ -374,19 +447,132 @@
     <section class="dashboard">
       <WindowFrame title={t(selectedLanguage, "appTitle")} />
       <div class="content">
-        <header class="head">
-          <div>
-            <p class="eyebrow">{t(selectedLanguage, "slogan")}</p>
-            <h1>{t(selectedLanguage, "appTitle")}</h1>
-            <p class="meta">
-              {t(selectedLanguage, "sampledAt")}: {formatTimestamp(snapshot?.collectedAtUnixMs)}
-            </p>
-            <p class="meta secondary">
-              {t(selectedLanguage, "uptime")}: {loading ? "--" : formatUptime(uptimeSeconds)}
-              · {t(selectedLanguage, "processCount")}: {loading ? "--" : processCount.toLocaleString()}
-            </p>
-          </div>
-          <div class="control-stack">
+        <div class="workspace">
+          <section class="main-content">
+            <header class="head">
+              <div>
+                <p class="eyebrow">{t(selectedLanguage, "slogan")}</p>
+                <h1>{t(selectedLanguage, "appTitle")}</h1>
+                <p class="meta">
+                  {t(selectedLanguage, "sampledAt")}: {formatTimestamp(snapshot?.collectedAtUnixMs)}
+                </p>
+                <p class="meta secondary">
+                  {t(selectedLanguage, "uptime")}: {loading ? "--" : formatUptime(uptimeSeconds)}
+                  · {t(selectedLanguage, "processCount")}: {loading ? "--" : processCount.toLocaleString()}
+                </p>
+              </div>
+            </header>
+
+            {#if errorMessage}
+              <p class="error">{t(selectedLanguage, "collectFailed")}: {errorMessage}</p>
+            {/if}
+
+            <section class="grid compact-two-rows">
+              <StatTile
+                title={t(selectedLanguage, "cpu")}
+                value={loading ? "--" : formatCpuFrequency(cpuFrequencyMhz)}
+                subtitle={loading
+                  ? t(selectedLanguage, "loading")
+                  : `${t(selectedLanguage, "cpuSubtitle")} ${formatPercent(cpuUsagePercent)} · ${t(selectedLanguage, "cpuCores")} ${cpuLogicalCores}`}
+                accent={cpuUsagePercent > 70}
+              />
+              <StatTile
+                title={t(selectedLanguage, "memoryUsed")}
+                value={loading ? "--" : formatPercent(memoryPercent)}
+                subtitle={loading
+                  ? t(selectedLanguage, "loading")
+                  : `${formatBytes(memoryUsed)} / ${formatBytes(memoryTotal)}`}
+              />
+              <StatTile
+                title={t(selectedLanguage, "swapUsed")}
+                value={loading ? "--" : formatPercent(swapPercent)}
+                subtitle={loading
+                  ? t(selectedLanguage, "loading")
+                  : `${formatBytes(swapUsed)} / ${formatBytes(swapTotal)}`}
+              />
+              <StatTile
+                title={t(selectedLanguage, "diskUsed")}
+                value={loading
+                  ? "--"
+                  : formatPercent(diskTotal > 0 ? (diskUsed / diskTotal) * 100 : 0)}
+                subtitle={loading
+                  ? t(selectedLanguage, "loading")
+                  : `${formatBytes(diskUsed)} / ${formatBytes(diskTotal)}`}
+              />
+              <StatTile
+                title={t(selectedLanguage, "download")}
+                value={loading ? "--" : formatRate(downloadRate)}
+                subtitle={loading
+                  ? t(selectedLanguage, "loading")
+                  : `${t(selectedLanguage, "accumulated")} ${formatBytes(snapshot?.network?.receivedTotalBytes ?? 0)} · ${t(selectedLanguage, "downloadPeak")} ${formatRate(downloadPeakRate)}`}
+              />
+              <StatTile
+                title={t(selectedLanguage, "upload")}
+                value={loading ? "--" : formatRate(uploadRate)}
+                subtitle={loading
+                  ? t(selectedLanguage, "loading")
+                  : `${t(selectedLanguage, "accumulated")} ${formatBytes(snapshot?.network?.transmittedTotalBytes ?? 0)} · ${t(selectedLanguage, "uploadPeak")} ${formatRate(uploadPeakRate)}`}
+              />
+            </section>
+
+            <section class="usage">
+              <ProgressTrack
+                label={t(selectedLanguage, "cpuActivity")}
+                valueText={loading ? "--" : formatPercent(cpuUsagePercent)}
+                percent={cpuUsagePercent}
+                warning={cpuUsagePercent > 80}
+              />
+              <ProgressTrack
+                label={t(selectedLanguage, "memoryPressure")}
+                valueText={loading ? "--" : formatPercent(memoryPercent)}
+                percent={memoryPercent}
+                warning={memoryPercent > 80}
+              />
+              <ProgressTrack
+                label={t(selectedLanguage, "swapPressure")}
+                valueText={loading ? "--" : formatPercent(swapPercent)}
+                percent={swapPercent}
+                warning={swapPercent > 80}
+              />
+            </section>
+
+            <section class="preview">
+              <p class="preview-title">{t(selectedLanguage, "preview")}</p>
+              <p class="preview-hint">{t(selectedLanguage, "previewHint")}</p>
+              <div
+                class={`preview-body ${selectedDisplayMode === "taskbar" ? "preview-taskbar-body" : ""}`}
+                style={`--preview-taskbar-width:${DISPLAY_WINDOW_CONFIG.taskbar.width}px;--preview-taskbar-height:${DISPLAY_WINDOW_CONFIG.taskbar.height}px;`}
+              >
+                {#if selectedDisplayMode === "taskbar"}
+                  <TaskbarStrip
+                    cpuValue={loading ? "--" : formatPercent(cpuUsagePercent)}
+                    memoryValue={loading ? "--" : formatCompactBytes(memoryUsed)}
+                    downloadValue={loading ? "--" : formatCompactRate(downloadRate)}
+                    uploadValue={loading ? "--" : formatCompactRate(uploadRate)}
+                    sampledAt={formatTimestamp(snapshot?.collectedAtUnixMs)}
+                    onDoubleClick={openMainWindow}
+                    surfaceOpacity={surfaceOpacity}
+                    frostedBlur={frostedBlur}
+                    layout={taskbarLayout}
+                  />
+                {:else}
+                  <FloatingPanel
+                    cpuValue={loading ? "--" : formatPercent(cpuUsagePercent)}
+                    memoryValue={loading ? "--" : formatCompactBytes(memoryUsed)}
+                    memoryTotal={loading ? "--" : formatCompactBytes(memoryTotal)}
+                    downloadValue={loading ? "--" : formatCompactRate(downloadRate)}
+                    uploadValue={loading ? "--" : formatCompactRate(uploadRate)}
+                    sampledAt={formatTimestamp(snapshot?.collectedAtUnixMs)}
+                    labels={{ title: t(selectedLanguage, "appTitle") }}
+                    surfaceOpacity={surfaceOpacity}
+                    frostedBlur={frostedBlur}
+                  />
+                {/if}
+              </div>
+            </section>
+          </section>
+
+          <aside class="control-stack">
             <ThemePicker themes={themes} selectedTheme={selectedTheme} onSelect={selectTheme} />
             <div class="inline-pickers">
               <LanguagePicker
@@ -411,6 +597,19 @@
               onOpacityChange={selectSurfaceOpacity}
               onBlurChange={selectFrostedBlur}
             />
+            <TaskbarLayoutTuner
+              values={taskbarLayout}
+              labels={{
+                paddingX: t(selectedLanguage, "taskbarPaddingX"),
+                columnGap: t(selectedLanguage, "taskbarColumnGap"),
+                groupGap: t(selectedLanguage, "taskbarGroupGap"),
+                fontSize: t(selectedLanguage, "taskbarFontSize")
+              }}
+              onPaddingXChange={selectTaskbarPaddingX}
+              onColumnGapChange={selectTaskbarColumnGap}
+              onGroupGapChange={selectTaskbarGroupGap}
+              onFontSizeChange={selectTaskbarFontSize}
+            />
             <TopmostPolicyPicker
               policies={topmostPolicies}
               selectedPolicy={topmostPolicy}
@@ -422,108 +621,8 @@
             <button class="copy-button" type="button" onclick={copyCurrentModeToNextScreen}>
               {t(selectedLanguage, "copyToNextScreen")}
             </button>
-          </div>
-        </header>
-
-        {#if errorMessage}
-          <p class="error">{t(selectedLanguage, "collectFailed")}: {errorMessage}</p>
-        {/if}
-
-        <section class="grid compact-two-rows">
-          <StatTile
-            title={t(selectedLanguage, "cpu")}
-            value={loading ? "--" : formatPercent(cpuUsagePercent)}
-            subtitle={t(selectedLanguage, "cpuSubtitle")}
-            accent={cpuUsagePercent > 70}
-          />
-          <StatTile
-            title={t(selectedLanguage, "memoryUsed")}
-            value={loading ? "--" : formatBytes(memoryUsed)}
-            subtitle={loading
-              ? t(selectedLanguage, "loading")
-              : `${t(selectedLanguage, "total")} ${formatBytes(memoryTotal)}`}
-          />
-          <StatTile
-            title={t(selectedLanguage, "swapUsed")}
-            value={loading ? "--" : formatBytes(swapUsed)}
-            subtitle={loading
-              ? t(selectedLanguage, "loading")
-              : `${t(selectedLanguage, "total")} ${formatBytes(swapTotal)}`}
-          />
-          <StatTile
-            title={t(selectedLanguage, "diskUsed")}
-            value={loading ? "--" : formatBytes(diskUsed)}
-            subtitle={loading
-              ? t(selectedLanguage, "loading")
-              : `${t(selectedLanguage, "total")} ${formatBytes(diskTotal)}`}
-          />
-          <StatTile
-            title={t(selectedLanguage, "download")}
-            value={loading ? "--" : formatRate(downloadRate)}
-            subtitle={loading
-              ? t(selectedLanguage, "loading")
-              : `${t(selectedLanguage, "accumulated")} ${formatBytes(snapshot?.network?.receivedTotalBytes ?? 0)} · ${t(selectedLanguage, "downloadPeak")} ${formatRate(downloadPeakRate)}`}
-          />
-          <StatTile
-            title={t(selectedLanguage, "upload")}
-            value={loading ? "--" : formatRate(uploadRate)}
-            subtitle={loading
-              ? t(selectedLanguage, "loading")
-              : `${t(selectedLanguage, "accumulated")} ${formatBytes(snapshot?.network?.transmittedTotalBytes ?? 0)} · ${t(selectedLanguage, "uploadPeak")} ${formatRate(uploadPeakRate)}`}
-          />
-        </section>
-
-        <section class="usage">
-          <ProgressTrack
-            label={t(selectedLanguage, "cpuActivity")}
-            valueText={loading ? "--" : formatPercent(cpuUsagePercent)}
-            percent={cpuUsagePercent}
-            warning={cpuUsagePercent > 80}
-          />
-          <ProgressTrack
-            label={t(selectedLanguage, "memoryPressure")}
-            valueText={loading ? "--" : formatPercent(memoryPercent)}
-            percent={memoryPercent}
-            warning={memoryPercent > 80}
-          />
-          <ProgressTrack
-            label={t(selectedLanguage, "swapPressure")}
-            valueText={loading ? "--" : formatPercent(swapPercent)}
-            percent={swapPercent}
-            warning={swapPercent > 80}
-          />
-        </section>
-
-        <section class="preview">
-          <p class="preview-title">{t(selectedLanguage, "preview")}</p>
-          <p class="preview-hint">{t(selectedLanguage, "previewHint")}</p>
-          <div class="preview-body">
-            {#if selectedDisplayMode === "taskbar"}
-              <TaskbarStrip
-                cpuValue={loading ? "--" : formatPercent(cpuUsagePercent)}
-                memoryValue={loading ? "--" : formatCompactBytes(memoryUsed)}
-                downloadValue={loading ? "--" : formatCompactRate(downloadRate)}
-                uploadValue={loading ? "--" : formatCompactRate(uploadRate)}
-                sampledAt={formatTimestamp(snapshot?.collectedAtUnixMs)}
-                onDoubleClick={openMainWindow}
-                surfaceOpacity={surfaceOpacity}
-                frostedBlur={frostedBlur}
-              />
-            {:else}
-              <FloatingPanel
-                cpuValue={loading ? "--" : formatPercent(cpuUsagePercent)}
-                memoryValue={loading ? "--" : formatCompactBytes(memoryUsed)}
-                memoryTotal={loading ? "--" : formatCompactBytes(memoryTotal)}
-                downloadValue={loading ? "--" : formatCompactRate(downloadRate)}
-                uploadValue={loading ? "--" : formatCompactRate(uploadRate)}
-                sampledAt={formatTimestamp(snapshot?.collectedAtUnixMs)}
-                labels={{ title: t(selectedLanguage, "appTitle") }}
-                surfaceOpacity={surfaceOpacity}
-                frostedBlur={frostedBlur}
-              />
-            {/if}
-          </div>
-        </section>
+          </aside>
+        </div>
       </div>
     </section>
   </main>
@@ -541,6 +640,7 @@
       onNudgePosition={handleTaskbarNudge}
       surfaceOpacity={surfaceOpacity}
       frostedBlur={frostedBlur}
+      layout={taskbarLayout}
     />
   </main>
 {:else}
@@ -582,34 +682,53 @@
   }
 
   .content {
-    display: flex;
-    flex-direction: column;
-    gap: 0.54rem;
-    padding: 0.62rem 0.72rem 0.68rem;
+    display: block;
+    padding: 0.5rem 0.58rem 0.56rem;
     flex: 1;
     min-height: 0;
   }
 
+  .workspace {
+    height: 100%;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 272px;
+    gap: 0.5rem;
+    min-height: 0;
+    align-items: start;
+  }
+
+  .main-content {
+    min-height: 0;
+    display: grid;
+    grid-template-rows: auto auto auto auto;
+    gap: 0.42rem;
+    align-content: start;
+  }
+
   .head {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    gap: 0.7rem;
-    flex-wrap: wrap;
+    display: block;
+    margin-bottom: 0.06rem;
   }
 
   .control-stack {
     display: grid;
-    gap: 0.32rem;
-    justify-items: end;
+    gap: 0.26rem;
+    align-content: start;
+    align-self: start;
+    border: 1px solid var(--card-border);
+    border-radius: 10px;
+    padding: 0.34rem 0.4rem;
+    background: color-mix(in srgb, var(--card) 85%, rgba(7, 20, 30, 0.48));
+    overflow: auto;
+    max-height: calc(100vh - 92px);
   }
 
   .inline-pickers {
     display: flex;
-    gap: 0.35rem;
+    gap: 0.28rem;
     align-items: center;
     flex-wrap: wrap;
-    justify-content: flex-end;
+    justify-content: flex-start;
   }
 
   .copy-button {
@@ -625,7 +744,7 @@
     letter-spacing: 0.13em;
     color: var(--text-subtle);
     font-size: 0.65rem;
-    margin-bottom: 0.12rem;
+    margin-bottom: 0.08rem;
   }
 
   h1 {
@@ -634,14 +753,14 @@
   }
 
   .meta {
-    margin-top: 0.08rem;
+    margin-top: 0.05rem;
     color: var(--text-subtle);
-    font-size: 0.77rem;
+    font-size: 0.75rem;
   }
 
   .meta.secondary {
-    margin-top: 0.04rem;
-    font-size: 0.72rem;
+    margin-top: 0.03rem;
+    font-size: 0.7rem;
     opacity: 0.92;
   }
 
@@ -652,7 +771,7 @@
 
   .grid {
     display: grid;
-    gap: 0.5rem;
+    gap: 0.38rem;
   }
 
   .compact-two-rows {
@@ -661,8 +780,8 @@
 
   .usage {
     display: grid;
-    gap: 0.5rem;
-    padding: 0.58rem;
+    gap: 0.34rem;
+    padding: 0.42rem;
     border-radius: 11px;
     border: 1px solid var(--card-border);
     background: var(--card);
@@ -671,10 +790,11 @@
   .preview {
     border: 1px solid var(--card-border);
     border-radius: 10px;
-    padding: 0.5rem;
+    padding: 0.4rem;
     background: color-mix(in srgb, var(--card) 78%, rgba(6, 12, 19, 0.45));
     display: grid;
-    gap: 0.3rem;
+    gap: 0.22rem;
+    min-height: 130px;
   }
 
   .preview-title {
@@ -693,6 +813,16 @@
     min-height: 44px;
     border-radius: 8px;
     overflow: hidden;
+    align-self: start;
+  }
+
+  .preview-taskbar-body {
+    width: var(--preview-taskbar-width);
+    height: var(--preview-taskbar-height);
+    max-width: 100%;
+    min-height: var(--preview-taskbar-height);
+    margin-left: auto;
+    margin-right: auto;
   }
 
   .display-shell {
@@ -709,6 +839,27 @@
   .floating-shell {
     padding: 0.26rem;
     background: transparent;
+  }
+
+  @media (max-width: 980px) {
+    .workspace {
+      grid-template-columns: 1fr;
+    }
+
+    .control-stack {
+      order: 2;
+      max-height: 34vh;
+    }
+
+    .preview {
+      min-height: 120px;
+    }
+  }
+
+  @media (min-width: 1580px) {
+    .compact-two-rows {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
   }
 
   :global(html[data-window-role="taskbar"]),

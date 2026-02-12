@@ -24,9 +24,9 @@
       {
         "label": "taskbar",
         "title": "Resource Monitor Taskbar",
-        "width": 560,
+        "width": 500,
         "height": 64,
-        "minWidth": 520,
+        "minWidth": 460,
         "minHeight": 64,
         "maxHeight": 64,
         "resizable": false,

@@ -1,4 +1,6 @@
 <script>
+  import { DEFAULT_TASKBAR_LAYOUT } from "../../config/displayConfig";
+
   let {
     cpuValue,
     memoryValue,
@@ -7,6 +9,7 @@
     sampledAt,
     surfaceOpacity = 38,
     frostedBlur = 16,
+    layout = DEFAULT_TASKBAR_LAYOUT,
     onDoubleClick = () => {},
     editMode = false,
     onStartPositioning = () => {},
@@ -17,7 +20,7 @@
 <section
   class:editing={editMode}
   class="strip"
-  style={`--rm-surface-alpha:${Math.max(0, Math.min(100, surfaceOpacity)) / 100};--rm-frosted-blur:${Math.max(0, Math.min(30, frostedBlur))}px;`}
+  style={`--rm-surface-alpha:${Math.max(0, Math.min(100, surfaceOpacity)) / 100};--rm-frosted-blur:${Math.max(0, Math.min(30, frostedBlur))}px;--rm-pad-x:${Math.max(2, Math.min(14, layout?.paddingX ?? 7))}px;--rm-pad-y:${Math.max(1, Math.min(10, layout?.paddingY ?? 3))}px;--rm-col-gap:${Math.max(2, Math.min(12, layout?.columnGap ?? 5))}px;--rm-group-gap:${Math.max(0, Math.min(20, layout?.groupGap ?? 6))}px;--rm-font-size:${Math.max(10, Math.min(15, layout?.fontSize ?? 12))}px;`}
   ondblclick={() => onDoubleClick?.()}
   role="button"
   tabindex="0"
@@ -51,48 +54,33 @@
     }
   }}
 >
-  <table class="metrics-table" aria-label="taskbar-metrics">
-    <colgroup>
-      <col class="col-label" />
-      <col class="col-value" />
-      <col class="col-label" />
-      <col class="col-value" />
-      <col class="col-time" />
-    </colgroup>
-    <tbody>
-      <tr>
-        <td class="metric-label">CPU</td>
-        <td class="metric-value">{cpuValue}</td>
-        <td class="metric-label">MEM</td>
-        <td class="metric-value">{memoryValue}</td>
-        <td class="time">{sampledAt}</td>
-      </tr>
-      <tr>
-        <td class="metric-label">DL</td>
-        <td class="metric-value">{downloadValue}</td>
-        <td class="metric-label">UL</td>
-        <td class="metric-value">{uploadValue}</td>
-        <td class="placeholder" aria-hidden="true">00:00:00</td>
-      </tr>
-    </tbody>
-  </table>
+  <div class="metrics-grid" role="table" aria-label="taskbar-metrics">
+    <span class="metric-label" role="cell">CPU</span>
+    <span class="metric-value" role="cell">{cpuValue}</span>
+    <span class="metric-label metric-label-group-2" role="cell">MEM</span>
+    <span class="metric-value" role="cell">{memoryValue}</span>
+    <span class="time" role="cell">{sampledAt}</span>
+
+    <span class="metric-label" role="cell">DL</span>
+    <span class="metric-value" role="cell">{downloadValue}</span>
+    <span class="metric-label metric-label-group-2" role="cell">UL</span>
+    <span class="metric-value" role="cell">{uploadValue}</span>
+    <span class="placeholder" aria-hidden="true" role="cell">00:00:00</span>
+  </div>
 </section>
 
 <style>
   .strip {
     width: 100%;
     height: 100%;
-    min-height: 0;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    gap: 0.2rem;
-    padding: 0.36rem 0.5rem;
+    min-height: 54px;
+    display: block;
+    padding: var(--rm-pad-y) var(--rm-pad-x);
     border: 1px solid transparent;
     border-radius: 8px;
     background: transparent;
     backdrop-filter: none;
-    overflow: hidden;
+    overflow: clip;
     user-select: none;
     cursor: default;
     outline: none;
@@ -113,45 +101,44 @@
     border-color: transparent;
   }
 
-  td {
-    font-size: 0.84rem;
+  .metrics-grid {
+    width: 100%;
+    height: 100%;
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr) max-content minmax(0, 1fr) 8ch;
+    grid-template-rows: 1fr 1fr;
+    column-gap: var(--rm-col-gap);
+    row-gap: 0;
+    align-items: center;
+  }
+
+  .metrics-grid > span {
+    font-size: var(--rm-font-size);
     font-weight: 700;
-    line-height: 1.15;
+    line-height: 1.08;
     white-space: nowrap;
     font-variant-numeric: tabular-nums;
     color: var(--rm-text-color);
     text-shadow: var(--rm-text-shadow);
-    padding: 0;
-    vertical-align: middle;
-  }
-
-  .metrics-table {
-    width: 100%;
-    border-collapse: separate;
-    border-spacing: 0.36rem 0.08rem;
-    table-layout: fixed;
-  }
-
-  .col-label {
-    width: 2.9ch;
-  }
-
-  .col-time {
-    width: 8ch;
+    min-width: 0;
   }
 
   .metric-label {
-    overflow: hidden;
-    text-overflow: clip;
     opacity: 0.96;
     text-align: left;
+    white-space: nowrap;
+    overflow: visible;
+  }
+
+  .metric-label-group-2 {
+    margin-left: var(--rm-group-gap);
   }
 
   .metric-value {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    text-align: right;
+    text-align: left;
     min-width: 0;
   }
 

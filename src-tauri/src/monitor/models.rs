@@ -4,6 +4,8 @@ use serde::Serialize;
 #[serde(rename_all = "camelCase")]
 pub struct ResourceMetrics {
     pub cpu_usage_percent: f32,
+    pub cpu_logical_cores: usize,
+    pub cpu_frequency_mhz: u64,
     pub memory_used_bytes: u64,
     pub memory_total_bytes: u64,
     pub swap_used_bytes: u64,

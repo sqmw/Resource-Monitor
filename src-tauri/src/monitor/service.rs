@@ -18,6 +18,64 @@ static NETWORKS: OnceLock<Mutex<Networks>> = OnceLock::new();
 static DISKS: OnceLock<Mutex<Disks>> = OnceLock::new();
 static NETWORK_ACCUMULATOR: OnceLock<Mutex<NetworkAccumulator>> = OnceLock::new();
 
+#[cfg(target_os = "windows")]
+fn read_windows_current_cpu_mhz(logical_cores: usize) -> Option<u64> {
+    use windows_sys::Win32::System::Power::{
+        CallNtPowerInformation, PROCESSOR_POWER_INFORMATION,
+    };
+
+    // POWER_INFORMATION_LEVEL::ProcessorInformation
+    const PROCESSOR_INFORMATION_LEVEL: i32 = 11;
+
+    if logical_cores == 0 {
+        return None;
+    }
+
+    let mut power_info = vec![
+        PROCESSOR_POWER_INFORMATION {
+            Number: 0,
+            MaxMhz: 0,
+            CurrentMhz: 0,
+            MhzLimit: 0,
+            MaxIdleState: 0,
+            CurrentIdleState: 0,
+        };
+        logical_cores
+    ];
+
+    let out_len = (power_info.len() * std::mem::size_of::<PROCESSOR_POWER_INFORMATION>()) as u32;
+    // SAFETY: output buffer is valid and sized according to out_len.
+    let status = unsafe {
+        CallNtPowerInformation(
+            PROCESSOR_INFORMATION_LEVEL,
+            std::ptr::null_mut(),
+            0,
+            power_info.as_mut_ptr() as *mut _,
+            out_len,
+        )
+    };
+
+    if status != 0 {
+        return None;
+    }
+
+    let mut sum = 0_u64;
+    let mut count = 0_u64;
+    for entry in power_info {
+        if entry.CurrentMhz > 0 {
+            sum += entry.CurrentMhz as u64;
+            count += 1;
+        }
+    }
+
+    if count == 0 { None } else { Some(sum / count) }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn read_windows_current_cpu_mhz(_logical_cores: usize) -> Option<u64> {
+    None
+}
+
 fn system() -> &'static Mutex<System> {
     SYSTEM.get_or_init(|| Mutex::new(System::new_all()))
 }
@@ -79,8 +137,19 @@ fn collect_resources() -> Result<ResourceMetrics, String> {
         },
     );
 
+    let cpu_logical_cores = system.cpus().len();
+    let fallback_avg_mhz = if system.cpus().is_empty() {
+        0
+    } else {
+        let total_mhz: u64 = system.cpus().iter().map(|cpu| cpu.frequency()).sum();
+        total_mhz / system.cpus().len() as u64
+    };
+
     Ok(ResourceMetrics {
         cpu_usage_percent: system.global_cpu_usage(),
+        cpu_logical_cores,
+        cpu_frequency_mhz: read_windows_current_cpu_mhz(cpu_logical_cores)
+            .unwrap_or(fallback_avg_mhz),
         memory_used_bytes: system.used_memory(),
         memory_total_bytes: system.total_memory(),
         swap_used_bytes: system.used_swap(),
