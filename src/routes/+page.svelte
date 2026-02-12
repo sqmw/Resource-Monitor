@@ -1,5 +1,5 @@
 <script>
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import { emit, listen } from "@tauri-apps/api/event";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import StatTile from "../lib/components/dashboard/StatTile.svelte";
@@ -7,6 +7,7 @@
   import ThemePicker from "../lib/components/dashboard/ThemePicker.svelte";
   import SurfaceTuner from "../lib/components/dashboard/SurfaceTuner.svelte";
   import TaskbarLayoutTuner from "../lib/components/dashboard/TaskbarLayoutTuner.svelte";
+  import TextContrastPicker from "../lib/components/dashboard/TextContrastPicker.svelte";
   import TopmostPolicyPicker from "../lib/components/dashboard/TopmostPolicyPicker.svelte";
   import LanguagePicker from "../lib/components/dashboard/LanguagePicker.svelte";
   import ViewModePicker from "../lib/components/dashboard/ViewModePicker.svelte";
@@ -15,6 +16,15 @@
   import WindowFrame from "../lib/components/window/WindowFrame.svelte";
   import { fetchMonitorSnapshot } from "../lib/services/monitorService";
   import {
+    initMainWindowLayoutPersistence,
+    restoreMainWindowLayout
+  } from "../lib/services/mainWindowStateService";
+  import {
+    AUTO_CONTRAST_POLL_MS,
+    resolveContrastTone,
+    sampleCurrentWindowBackdropLuminance
+  } from "../lib/services/contrastService";
+  import {
     copyDisplayModeToNextMonitor,
     initDisplayWindowLayoutPersistence,
     loadDisplayVisibility,
@@ -22,13 +32,13 @@
     loadTopmostPolicy,
     listenEvent,
     loadDisplayMode,
-    nudgeTaskbarPosition,
+    nudgeDisplayPosition,
     openMainWindow,
     applyTopmostPolicyToDisplays,
     applyClickThroughToDisplays,
     setDisplayVisibility,
-    setTaskbarManualPositioning,
-    startTaskbarManualDrag
+    setDisplayManualPositioning,
+    startDisplayManualDrag
   } from "../lib/services/windowModeService";
   import {
     formatCompactBytes,
@@ -47,6 +57,8 @@
   /** @typedef {"zh" | "en"} Language */
   /** @typedef {"taskbar" | "floating"} DisplayMode */
   /** @typedef {"auto" | "always" | "manual"} TopmostPolicy */
+  /** @typedef {"auto" | "fixed"} TextContrastMode */
+  /** @typedef {"light" | "dark"} ContrastTone */
 
   const themes = [
     { id: "aurora", label: "Aurora" },
@@ -54,6 +66,7 @@
     { id: "forest", label: "Forest" }
   ];
   const topmostPolicyOrder = ["auto", "always", "manual"];
+  const textContrastModeOrder = ["auto", "fixed"];
 
   const STORAGE_KEYS = {
     theme: "rm.theme",
@@ -61,6 +74,7 @@
     displayMode: "rm.displayMode",
     surfaceOpacity: "rm.surfaceOpacity",
     frostedBlur: "rm.frostedBlur",
+    textContrastMode: "rm.textContrastMode",
     taskbarLayout: "rm.taskbarLayout",
     topmostPolicy: "rm.topmostPolicy",
     clickThrough: "rm.clickThrough"
@@ -77,12 +91,17 @@
   let selectedTheme = $state("aurora");
   let surfaceOpacity = $state(38);
   let frostedBlur = $state(16);
+  /** @type {TextContrastMode} */
+  let textContrastMode = $state("auto");
+  /** @type {ContrastTone} */
+  let displayContrastTone = $state("light");
+  let contrastRefreshTick = $state(0);
   let taskbarLayout = $state({ ...DEFAULT_TASKBAR_LAYOUT });
   /** @type {TopmostPolicy} */
   let topmostPolicy = $state("auto");
   let clickThroughEnabled = $state(false);
   let errorMessage = $state("");
-  let taskbarPositionEditMode = $state(false);
+  let displayPositionEditMode = $state(false);
 
   const currentLabel = getCurrentWindow().label;
   let isMainWindow = $derived(currentLabel === "main");
@@ -115,6 +134,12 @@
       )
     }))
   );
+  let textContrastModes = $derived(
+    textContrastModeOrder.map((id) => ({
+      id,
+      label: t(selectedLanguage, id === "auto" ? "textContrastAuto" : "textContrastFixed")
+    }))
+  );
 
   /**
    * @param {unknown} raw
@@ -124,11 +149,21 @@
     const value = /** @type {{ paddingX?: number; paddingY?: number; columnGap?: number; groupGap?: number; fontSize?: number }} */ (raw);
     return {
       paddingX: Math.max(2, Math.min(14, Math.round(value.paddingX ?? DEFAULT_TASKBAR_LAYOUT.paddingX))),
-      paddingY: Math.max(1, Math.min(10, Math.round(value.paddingY ?? DEFAULT_TASKBAR_LAYOUT.paddingY))),
+      // Keep taskbar vertical rhythm tight; migrate legacy oversized values from older versions.
+      paddingY: Math.max(0, Math.min(4, Math.round(value.paddingY ?? DEFAULT_TASKBAR_LAYOUT.paddingY))),
       columnGap: Math.max(2, Math.min(12, Math.round(value.columnGap ?? DEFAULT_TASKBAR_LAYOUT.columnGap))),
       groupGap: Math.max(0, Math.min(20, Math.round(value.groupGap ?? DEFAULT_TASKBAR_LAYOUT.groupGap))),
       fontSize: Math.max(10, Math.min(15, Math.round(value.fontSize ?? DEFAULT_TASKBAR_LAYOUT.fontSize)))
     };
+  }
+
+  async function refreshDisplayContrastTone() {
+    if (textContrastMode !== "auto") return;
+    if (!isTaskbarWindow && !isFloatingWindow) return;
+
+    const sampledLuminance = await sampleCurrentWindowBackdropLuminance();
+    displayContrastTone = resolveContrastTone(sampledLuminance, displayContrastTone);
+    contrastRefreshTick = (contrastRefreshTick + 1) % 1000000;
   }
 
   function loadPreferences() {
@@ -148,6 +183,10 @@
     const savedBlur = Number(localStorage.getItem(STORAGE_KEYS.frostedBlur));
     if (Number.isFinite(savedBlur)) {
       frostedBlur = Math.max(0, Math.min(30, Math.round(savedBlur)));
+    }
+    const savedTextContrastMode = localStorage.getItem(STORAGE_KEYS.textContrastMode);
+    if (savedTextContrastMode === "auto" || savedTextContrastMode === "fixed") {
+      textContrastMode = savedTextContrastMode;
     }
     try {
       const savedTaskbarLayout = localStorage.getItem(STORAGE_KEYS.taskbarLayout);
@@ -187,6 +226,7 @@
       language: selectedLanguage,
       surfaceOpacity,
       frostedBlur,
+      textContrastMode,
       taskbarLayout
     });
   }
@@ -225,6 +265,18 @@
     frostedBlur = Math.max(0, Math.min(30, Math.round(value)));
     persistPreference(STORAGE_KEYS.frostedBlur, String(frostedBlur));
     void broadcastPreferences();
+  }
+
+  /**
+   * @param {TextContrastMode} mode
+   */
+  function selectTextContrastMode(mode) {
+    textContrastMode = mode;
+    persistPreference(STORAGE_KEYS.textContrastMode, mode);
+    void broadcastPreferences();
+    if (mode === "auto") {
+      void refreshDisplayContrastTone();
+    }
   }
 
   /**
@@ -296,22 +348,58 @@
     await copyDisplayModeToNextMonitor(selectedDisplayMode);
   }
 
-  async function handleTaskbarStartPositioning() {
-    if (!taskbarPositionEditMode) return;
-    await startTaskbarManualDrag();
+  /**
+   * @returns {DisplayMode | null}
+   */
+  function getCurrentDisplayRole() {
+    if (isTaskbarWindow) return "taskbar";
+    if (isFloatingWindow) return "floating";
+    return null;
+  }
+
+  async function handleDisplayStartPositioning() {
+    if (!displayPositionEditMode) return;
+    const role = getCurrentDisplayRole();
+    if (!role) return;
+    await startDisplayManualDrag(role);
   }
 
   /**
    * @param {number} dx
    * @param {number} dy
    */
-  function handleTaskbarNudge(dx, dy) {
-    if (!taskbarPositionEditMode) return;
-    void nudgeTaskbarPosition(dx, dy);
+  function handleDisplayNudge(dx, dy) {
+    if (!displayPositionEditMode) return;
+    const role = getCurrentDisplayRole();
+    if (!role) return;
+    void nudgeDisplayPosition(role, dx, dy);
   }
 
   /**
-   * @param {{ theme?: string; language?: string; surfaceOpacity?: number; frostedBlur?: number; taskbarLayout?: { paddingX?: number; paddingY?: number; columnGap?: number; groupGap?: number; fontSize?: number } } | null | undefined} payload
+   * @param {KeyboardEvent} event
+   */
+  function handleDisplayArrowNudge(event) {
+    if (!displayPositionEditMode) return;
+    const base = event.repeat ? 10 : 3;
+    const step = event.shiftKey ? base * 2 : base;
+
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      handleDisplayNudge(-step, 0);
+    } else if (event.key === "ArrowRight") {
+      event.preventDefault();
+      handleDisplayNudge(step, 0);
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      handleDisplayNudge(0, -step);
+    } else if (event.key === "ArrowDown") {
+      event.preventDefault();
+      handleDisplayNudge(0, step);
+    }
+  }
+
+  /**
+   * @param {{ theme?: string; language?: string; surfaceOpacity?: number; frostedBlur?: number; textContrastMode?: TextContrastMode; taskbarLayout?: { paddingX?: number; paddingY?: number; columnGap?: number; groupGap?: number; fontSize?: number } } | null | undefined} payload
    */
   function applyPreferencePayload(payload) {
     if (!payload || typeof payload !== "object") return;
@@ -338,6 +426,14 @@
       persistPreference(STORAGE_KEYS.frostedBlur, String(frostedBlur));
     }
 
+    if (payload.textContrastMode === "auto" || payload.textContrastMode === "fixed") {
+      textContrastMode = payload.textContrastMode;
+      persistPreference(STORAGE_KEYS.textContrastMode, textContrastMode);
+      if (textContrastMode === "auto") {
+        void refreshDisplayContrastTone();
+      }
+    }
+
     if (payload.taskbarLayout && typeof payload.taskbarLayout === "object") {
       taskbarLayout = normalizeTaskbarLayout(payload.taskbarLayout);
       persistPreference(STORAGE_KEYS.taskbarLayout, JSON.stringify(taskbarLayout));
@@ -353,18 +449,32 @@
     document.body.dataset.windowRole = currentLabel;
   });
 
+  $effect(() => {
+    if (!isFloatingWindow || !displayPositionEditMode) return;
+    void tick().then(() => {
+      document.getElementById("floating-position-layer")?.focus();
+    });
+  });
+
   onMount(() => {
     let running = true;
     loadPreferences();
 
+    let disposeMainLayoutPersistence = () => {};
     if (isMainWindow) {
-      void Promise.all([
-        setDisplayVisibility("taskbar", displayVisibility.taskbar, { persist: false }),
-        setDisplayVisibility("floating", displayVisibility.floating, { persist: false })
-      ]);
-      void applyTopmostPolicyToDisplays(topmostPolicy);
-      void applyClickThroughToDisplays(clickThroughEnabled);
-      void broadcastPreferences();
+      void restoreMainWindowLayout()
+        .then(() =>
+          Promise.all([
+            setDisplayVisibility("taskbar", displayVisibility.taskbar, { persist: false }),
+            setDisplayVisibility("floating", displayVisibility.floating, { persist: false })
+          ])
+        )
+        .then(() => applyTopmostPolicyToDisplays(topmostPolicy))
+        .then(() => applyClickThroughToDisplays(clickThroughEnabled))
+        .then(() => broadcastPreferences());
+      void initMainWindowLayoutPersistence().then((cleanup) => {
+        disposeMainLayoutPersistence = cleanup;
+      });
     }
 
     let disposeDisplayPersistence = () => {};
@@ -381,13 +491,26 @@
     }
 
     let disposeTrayPositioningListener = () => {};
-    if (isTaskbarWindow) {
-      void listen("tray://taskbar-positioning", (event) => {
+    let disposeTrayLegacyPositioningListener = () => {};
+    if (isTaskbarWindow || isFloatingWindow) {
+      const role = getCurrentDisplayRole();
+      void listen("tray://display-positioning", (event) => {
         const enabled = Boolean(event.payload);
-        taskbarPositionEditMode = enabled;
-        void setTaskbarManualPositioning(enabled);
+        displayPositionEditMode = enabled;
+        if (!role) return;
+        void setDisplayManualPositioning(role, enabled);
       }).then((unlisten) => {
         disposeTrayPositioningListener = unlisten;
+      });
+
+      // Backward-compatible event name.
+      void listen("tray://taskbar-positioning", (event) => {
+        const enabled = Boolean(event.payload);
+        displayPositionEditMode = enabled;
+        if (!role) return;
+        void setDisplayManualPositioning(role, enabled);
+      }).then((unlisten) => {
+        disposeTrayLegacyPositioningListener = unlisten;
       });
     }
 
@@ -415,6 +538,25 @@
       disposePreferenceSync = cleanup;
     });
 
+    let disposeContrastMoved = () => {};
+    let disposeContrastResized = () => {};
+    if (isTaskbarWindow || isFloatingWindow) {
+      void getCurrentWindow()
+        .onMoved(() => {
+          void refreshDisplayContrastTone();
+        })
+        .then((cleanup) => {
+          disposeContrastMoved = cleanup;
+        });
+      void getCurrentWindow()
+        .onResized(() => {
+          void refreshDisplayContrastTone();
+        })
+        .then((cleanup) => {
+          disposeContrastResized = cleanup;
+        });
+    }
+
     const pollSnapshot = async () => {
       try {
         const data = await fetchMonitorSnapshot();
@@ -431,13 +573,30 @@
     pollSnapshot();
     const timerId = setInterval(pollSnapshot, 1000);
 
+    const contrastTimerId =
+      isTaskbarWindow || isFloatingWindow
+        ? setInterval(() => {
+            void refreshDisplayContrastTone();
+          }, AUTO_CONTRAST_POLL_MS)
+        : null;
+    if (isTaskbarWindow || isFloatingWindow) {
+      void refreshDisplayContrastTone();
+    }
+
     return () => {
       running = false;
       clearInterval(timerId);
+      if (contrastTimerId !== null) {
+        clearInterval(contrastTimerId);
+      }
       disposeDisplayPersistence();
+      disposeMainLayoutPersistence();
       disposeTrayPositioningListener();
+      disposeTrayLegacyPositioningListener();
       disposeDisplayModeListener();
       disposePreferenceSync();
+      disposeContrastMoved();
+      disposeContrastResized();
     };
   });
 </script>
@@ -470,10 +629,10 @@
             <section class="grid compact-two-rows">
               <StatTile
                 title={t(selectedLanguage, "cpu")}
-                value={loading ? "--" : formatCpuFrequency(cpuFrequencyMhz)}
+                value={loading ? "--" : formatPercent(cpuUsagePercent)}
                 subtitle={loading
                   ? t(selectedLanguage, "loading")
-                  : `${t(selectedLanguage, "cpuSubtitle")} ${formatPercent(cpuUsagePercent)} · ${t(selectedLanguage, "cpuCores")} ${cpuLogicalCores}`}
+                  : `${t(selectedLanguage, "cpuFrequency")} ${formatCpuFrequency(cpuFrequencyMhz)} · ${t(selectedLanguage, "cpuCores")} ${cpuLogicalCores}`}
                 accent={cpuUsagePercent > 70}
               />
               <StatTile
@@ -553,6 +712,9 @@
                     onDoubleClick={openMainWindow}
                     surfaceOpacity={surfaceOpacity}
                     frostedBlur={frostedBlur}
+                    textContrastMode={textContrastMode}
+                    contrastTone={displayContrastTone}
+                    contrastRefreshTick={contrastRefreshTick}
                     layout={taskbarLayout}
                   />
                 {:else}
@@ -566,6 +728,9 @@
                     labels={{ title: t(selectedLanguage, "appTitle") }}
                     surfaceOpacity={surfaceOpacity}
                     frostedBlur={frostedBlur}
+                    textContrastMode={textContrastMode}
+                    contrastTone={displayContrastTone}
+                    contrastRefreshTick={contrastRefreshTick}
                   />
                 {/if}
               </div>
@@ -596,6 +761,11 @@
               }}
               onOpacityChange={selectSurfaceOpacity}
               onBlurChange={selectFrostedBlur}
+            />
+            <TextContrastPicker
+              modes={textContrastModes}
+              selectedMode={textContrastMode}
+              onSelect={selectTextContrastMode}
             />
             <TaskbarLayoutTuner
               values={taskbarLayout}
@@ -635,16 +805,37 @@
       uploadValue={loading ? "--" : formatCompactRate(uploadRate)}
       sampledAt={formatTimestamp(snapshot?.collectedAtUnixMs)}
       onDoubleClick={openMainWindow}
-      editMode={taskbarPositionEditMode}
-      onStartPositioning={handleTaskbarStartPositioning}
-      onNudgePosition={handleTaskbarNudge}
+      editMode={displayPositionEditMode}
+      onStartPositioning={handleDisplayStartPositioning}
+      onNudgePosition={handleDisplayNudge}
       surfaceOpacity={surfaceOpacity}
       frostedBlur={frostedBlur}
+      textContrastMode={textContrastMode}
+      contrastTone={displayContrastTone}
+      contrastRefreshTick={contrastRefreshTick}
       layout={taskbarLayout}
     />
   </main>
 {:else}
-  <main class="display-shell floating-shell" ondblclick={openMainWindow}>
+  <main
+    class:editing={displayPositionEditMode}
+    class="display-shell floating-shell"
+    ondblclick={openMainWindow}
+  >
+    {#if displayPositionEditMode}
+      <button
+        id="floating-position-layer"
+        class="floating-position-layer"
+        type="button"
+        aria-label="position-display-window"
+        onmousedown={(event) => {
+          if (event.button !== 0) return;
+          event.preventDefault();
+          handleDisplayStartPositioning();
+        }}
+        onkeydown={handleDisplayArrowNudge}
+      ></button>
+    {/if}
     <FloatingPanel
       cpuValue={loading ? "--" : formatPercent(cpuUsagePercent)}
       memoryValue={loading ? "--" : formatCompactBytes(memoryUsed)}
@@ -655,6 +846,9 @@
       labels={{ title: t(selectedLanguage, "appTitle") }}
       surfaceOpacity={surfaceOpacity}
       frostedBlur={frostedBlur}
+      textContrastMode={textContrastMode}
+      contrastTone={displayContrastTone}
+      contrastRefreshTick={contrastRefreshTick}
     />
   </main>
 {/if}
@@ -839,6 +1033,23 @@
   .floating-shell {
     padding: 0.26rem;
     background: transparent;
+    position: relative;
+  }
+
+  .floating-shell.editing {
+    cursor: move;
+    outline: 1px solid rgba(176, 228, 255, 0.56);
+    outline-offset: -1px;
+    border-radius: 10px;
+  }
+
+  .floating-position-layer {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    border: 0;
+    background: transparent;
+    cursor: move;
   }
 
   @media (max-width: 980px) {

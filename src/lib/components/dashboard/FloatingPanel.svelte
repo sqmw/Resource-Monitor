@@ -8,13 +8,19 @@
     sampledAt,
     labels,
     surfaceOpacity = 44,
-    frostedBlur = 16
+    frostedBlur = 16,
+    textContrastMode = "auto",
+    contrastTone = "light",
+    contrastRefreshTick = 0
   } = $props();
 </script>
 
 <section
+  class:auto-contrast={textContrastMode === "auto"}
+  class:auto-dark={textContrastMode === "auto" && contrastTone === "dark"}
+  class:auto-light={textContrastMode === "auto" && contrastTone !== "dark"}
   class="floating-panel"
-  style={`--rm-surface-alpha:${Math.max(0, Math.min(100, surfaceOpacity)) / 100};--rm-frosted-blur:${Math.max(0, Math.min(30, frostedBlur))}px;`}
+  style={`--rm-surface-alpha:${Math.max(0, Math.min(100, surfaceOpacity)) / 100};--rm-frosted-blur:${Math.max(0, Math.min(30, frostedBlur))}px;--rm-contrast-refresh:${Math.max(0, contrastRefreshTick % 1000000)};`}
   role="presentation"
 >
   <header class="top">
@@ -43,6 +49,22 @@
     display: grid;
     gap: 0.36rem;
     user-select: none;
+  }
+
+  .floating-panel.auto-contrast {
+    --rm-auto-color: rgba(246, 251, 255, 0.98);
+    --rm-auto-shadow: 0 1px 1px rgba(0, 0, 0, 0.56);
+  }
+
+  .floating-panel.auto-contrast.auto-dark {
+    --rm-auto-color: rgba(10, 18, 27, 0.96);
+    --rm-auto-shadow: 0 1px 1px rgba(245, 250, 255, 0.58);
+  }
+
+  .floating-panel.auto-contrast :is(.title, .time, .metrics p, strong, .sub) {
+    color: var(--rm-auto-color);
+    text-shadow: var(--rm-auto-shadow);
+    transform: translateZ(calc(var(--rm-contrast-refresh) * 0px));
   }
 
   .top {

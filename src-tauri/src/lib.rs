@@ -1,14 +1,16 @@
 mod monitor;
+mod window_contrast;
 mod window_policy;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use serde_json::json;
 use tauri::Emitter;
 use tauri::Manager;
 use tauri::menu::{MenuBuilder, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 
-static TASKBAR_POSITIONING_ENABLED: AtomicBool = AtomicBool::new(false);
+static DISPLAY_POSITIONING_ENABLED: AtomicBool = AtomicBool::new(false);
 
 fn show_main_window(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
@@ -18,39 +20,71 @@ fn show_main_window(app: &tauri::AppHandle) {
     }
 }
 
-fn set_display_mode(app: &tauri::AppHandle, mode: &str) {
-    let taskbar_window = app.get_webview_window("taskbar");
-    let floating_window = app.get_webview_window("floating");
+fn toggle_display_window(app: &tauri::AppHandle, mode: &str) {
+    if let Some(window) = app.get_webview_window(mode) {
+        let currently_visible = window.is_visible().unwrap_or(false);
+        let next_visible = !currently_visible;
 
-    match mode {
-        "taskbar" => {
-            if let Some(window) = taskbar_window {
-                let _ = window.show();
-                let _ = window.set_always_on_top(true);
-            }
-            if let Some(window) = floating_window {
-                let _ = window.hide();
-            }
+        if next_visible {
+            let _ = window.show();
+            let _ = window.set_always_on_top(true);
+        } else {
+            let _ = window.hide();
         }
-        "floating" => {
-            if let Some(window) = floating_window {
-                let _ = window.show();
-                let _ = window.set_always_on_top(true);
-            }
-            if let Some(window) = taskbar_window {
-                let _ = window.hide();
-            }
-        }
-        _ => {}
+
+        let _ = app.emit(
+            "app://display-visibility",
+            json!({
+                "mode": mode,
+                "visible": next_visible
+            }),
+        );
     }
+}
 
-    let _ = app.emit("tray://display-mode", mode);
+fn is_window_visible(app: &tauri::AppHandle, label: &str) -> bool {
+    app.get_webview_window(label)
+        .and_then(|window| window.is_visible().ok())
+        .unwrap_or(false)
+}
+
+fn refresh_display_menu_labels(
+    app: &tauri::AppHandle,
+    taskbar_item: &MenuItem<tauri::Wry>,
+    floating_item: &MenuItem<tauri::Wry>,
+) {
+    let taskbar_text = if is_window_visible(app, "taskbar") {
+        "隐藏任务栏窗口"
+    } else {
+        "显示任务栏窗口"
+    };
+    let floating_text = if is_window_visible(app, "floating") {
+        "隐藏悬浮窗窗口"
+    } else {
+        "显示悬浮窗窗口"
+    };
+    let _ = taskbar_item.set_text(taskbar_text);
+    let _ = floating_item.set_text(floating_text);
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
+            let display_taskbar_item = MenuItem::with_id(
+                app,
+                "display_taskbar",
+                "显示任务栏窗口",
+                true,
+                None::<&str>,
+            )?;
+            let display_floating_item = MenuItem::with_id(
+                app,
+                "display_floating",
+                "显示悬浮窗窗口",
+                true,
+                None::<&str>,
+            )?;
             let toggle_taskbar_positioning_item = MenuItem::with_id(
                 app,
                 "toggle_taskbar_positioning",
@@ -61,8 +95,8 @@ pub fn run() {
             let tray_menu = MenuBuilder::new(app)
                 .text("show_main", "打开主窗口")
                 .separator()
-                .text("display_taskbar", "显示任务栏模式")
-                .text("display_floating", "显示悬浮窗模式")
+                .item(&display_taskbar_item)
+                .item(&display_floating_item)
                 .item(&toggle_taskbar_positioning_item)
                 .separator()
                 .text("quit_app", "退出")
@@ -70,6 +104,8 @@ pub fn run() {
 
             let app_handle = app.handle().clone();
             let toggle_menu_item = toggle_taskbar_positioning_item.clone();
+            let taskbar_menu_item = display_taskbar_item.clone();
+            let floating_menu_item = display_floating_item.clone();
             let mut tray_builder = TrayIconBuilder::new()
                 .menu(&tray_menu)
                 .tooltip("Resource Monitor")
@@ -87,21 +123,35 @@ pub fn run() {
                 .on_menu_event(move |_, event| match event.id().as_ref() {
                     "show_main" => show_main_window(&app_handle),
                     "display_taskbar" => {
-                        TASKBAR_POSITIONING_ENABLED.store(false, Ordering::Relaxed);
+                        DISPLAY_POSITIONING_ENABLED.store(false, Ordering::Relaxed);
+                        let _ = app_handle.emit("tray://display-positioning", false);
+                        let _ = app_handle.emit("tray://taskbar-positioning", false);
                         let _ = toggle_menu_item.set_text("启动拖动模式");
-                        set_display_mode(&app_handle, "taskbar");
+                        toggle_display_window(&app_handle, "taskbar");
+                        refresh_display_menu_labels(
+                            &app_handle,
+                            &taskbar_menu_item,
+                            &floating_menu_item,
+                        );
                         show_main_window(&app_handle);
                     }
                     "display_floating" => {
-                        TASKBAR_POSITIONING_ENABLED.store(false, Ordering::Relaxed);
+                        DISPLAY_POSITIONING_ENABLED.store(false, Ordering::Relaxed);
+                        let _ = app_handle.emit("tray://display-positioning", false);
                         let _ = app_handle.emit("tray://taskbar-positioning", false);
                         let _ = toggle_menu_item.set_text("启动拖动模式");
-                        set_display_mode(&app_handle, "floating");
+                        toggle_display_window(&app_handle, "floating");
+                        refresh_display_menu_labels(
+                            &app_handle,
+                            &taskbar_menu_item,
+                            &floating_menu_item,
+                        );
                         show_main_window(&app_handle);
                     }
                     "toggle_taskbar_positioning" => {
-                        let enabled = !TASKBAR_POSITIONING_ENABLED.load(Ordering::Relaxed);
-                        TASKBAR_POSITIONING_ENABLED.store(enabled, Ordering::Relaxed);
+                        let enabled = !DISPLAY_POSITIONING_ENABLED.load(Ordering::Relaxed);
+                        DISPLAY_POSITIONING_ENABLED.store(enabled, Ordering::Relaxed);
+                        let _ = app_handle.emit("tray://display-positioning", enabled);
                         let _ = app_handle.emit("tray://taskbar-positioning", enabled);
                         let _ = toggle_menu_item.set_text(if enabled {
                             "退出拖动模式"
@@ -119,11 +169,13 @@ pub fn run() {
             }
 
             tray_builder.build(app)?;
+            refresh_display_menu_labels(app.handle(), &display_taskbar_item, &display_floating_item);
 
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             monitor::commands::get_monitor_snapshot,
+            window_contrast::sample_backdrop_luminance,
             window_policy::is_foreground_fullscreen
         ])
         .run(tauri::generate_context!())

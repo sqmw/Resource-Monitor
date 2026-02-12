@@ -9,6 +9,9 @@
     sampledAt,
     surfaceOpacity = 38,
     frostedBlur = 16,
+    textContrastMode = "auto",
+    contrastTone = "light",
+    contrastRefreshTick = 0,
     layout = DEFAULT_TASKBAR_LAYOUT,
     onDoubleClick = () => {},
     editMode = false,
@@ -18,9 +21,12 @@
 </script>
 
 <section
+  class:auto-contrast={textContrastMode === "auto"}
+  class:auto-dark={textContrastMode === "auto" && contrastTone === "dark"}
+  class:auto-light={textContrastMode === "auto" && contrastTone !== "dark"}
   class:editing={editMode}
   class="strip"
-  style={`--rm-surface-alpha:${Math.max(0, Math.min(100, surfaceOpacity)) / 100};--rm-frosted-blur:${Math.max(0, Math.min(30, frostedBlur))}px;--rm-pad-x:${Math.max(2, Math.min(14, layout?.paddingX ?? 7))}px;--rm-pad-y:${Math.max(1, Math.min(10, layout?.paddingY ?? 3))}px;--rm-col-gap:${Math.max(2, Math.min(12, layout?.columnGap ?? 5))}px;--rm-group-gap:${Math.max(0, Math.min(20, layout?.groupGap ?? 6))}px;--rm-font-size:${Math.max(10, Math.min(15, layout?.fontSize ?? 12))}px;`}
+  style={`--rm-surface-alpha:${Math.max(0, Math.min(100, surfaceOpacity)) / 100};--rm-frosted-blur:${Math.max(0, Math.min(30, frostedBlur))}px;--rm-pad-x:${Math.max(2, Math.min(14, layout?.paddingX ?? 7))}px;--rm-pad-y:${Math.max(0, Math.min(4, layout?.paddingY ?? 2))}px;--rm-col-gap:${Math.max(2, Math.min(12, layout?.columnGap ?? 5))}px;--rm-group-gap:${Math.max(0, Math.min(20, layout?.groupGap ?? 6))}px;--rm-font-size:${Math.max(10, Math.min(15, layout?.fontSize ?? 12))}px;--rm-contrast-refresh:${Math.max(0, contrastRefreshTick % 1000000)};`}
   ondblclick={() => onDoubleClick?.()}
   role="button"
   tabindex="0"
@@ -73,8 +79,9 @@
   .strip {
     width: 100%;
     height: 100%;
-    min-height: 54px;
-    display: block;
+    min-height: 0;
+    display: flex;
+    align-items: center;
     padding: var(--rm-pad-y) var(--rm-pad-x);
     border: 1px solid transparent;
     border-radius: 8px;
@@ -103,24 +110,43 @@
 
   .metrics-grid {
     width: 100%;
-    height: 100%;
+    height: auto;
     display: grid;
     grid-template-columns: max-content minmax(0, 1fr) max-content minmax(0, 1fr) 8ch;
     grid-template-rows: 1fr 1fr;
     column-gap: var(--rm-col-gap);
-    row-gap: 0;
+    row-gap: 1px;
     align-items: center;
+    align-content: center;
   }
 
   .metrics-grid > span {
     font-size: var(--rm-font-size);
     font-weight: 700;
-    line-height: 1.08;
+    line-height: 1.02;
+    display: flex;
+    align-items: center;
     white-space: nowrap;
     font-variant-numeric: tabular-nums;
     color: var(--rm-text-color);
     text-shadow: var(--rm-text-shadow);
     min-width: 0;
+  }
+
+  .strip.auto-contrast {
+    --rm-auto-color: rgba(244, 250, 255, 0.98);
+    --rm-auto-shadow: 0 1px 1px rgba(0, 0, 0, 0.58);
+  }
+
+  .strip.auto-contrast.auto-dark {
+    --rm-auto-color: rgba(10, 18, 27, 0.96);
+    --rm-auto-shadow: 0 1px 1px rgba(246, 250, 255, 0.56);
+  }
+
+  .strip.auto-contrast .metrics-grid > span {
+    color: var(--rm-auto-color);
+    text-shadow: var(--rm-auto-shadow);
+    transform: translateZ(calc(var(--rm-contrast-refresh) * 0px));
   }
 
   .metric-label {

@@ -183,6 +183,20 @@ fn collect_network() -> Result<NetworkMetrics, String> {
         .lock()
         .map_err(|_| "failed to lock network accumulator".to_string())?;
 
+    if accumulator.last_collected_at.is_none() {
+        accumulator.last_received_total = received_total_bytes;
+        accumulator.last_transmitted_total = transmitted_total_bytes;
+        accumulator.last_collected_at = Some(now);
+        return Ok(NetworkMetrics {
+            received_total_bytes,
+            transmitted_total_bytes,
+            download_bytes_per_sec: 0.0,
+            upload_bytes_per_sec: 0.0,
+            download_peak_bytes_per_sec: accumulator.download_peak_bytes_per_sec,
+            upload_peak_bytes_per_sec: accumulator.upload_peak_bytes_per_sec,
+        });
+    }
+
     let elapsed = accumulator
         .last_collected_at
         .map(|last| now.saturating_duration_since(last))

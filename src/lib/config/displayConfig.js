@@ -17,7 +17,7 @@ export const DISPLAY_WINDOW_CONFIG = {
 
 export const DEFAULT_TASKBAR_LAYOUT = {
   paddingX: 6,
-  paddingY: 3,
+  paddingY: 2,
   columnGap: 4,
   groupGap: 6,
   fontSize: 12

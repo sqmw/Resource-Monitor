@@ -17,6 +17,8 @@ const CLICK_THROUGH_STORAGE_KEY = "rm.clickThrough";
 const LAYOUT_STORAGE_KEY = "rm.window.layout.v2";
 const EDGE_GAP = 8;
 const FLOATING_TOP_GAP = 52;
+const AUTO_FULLSCREEN_ENTER_TICKS = 5;
+const AUTO_FULLSCREEN_EXIT_TICKS = 2;
 
 /** @typedef {"taskbar" | "floating"} DisplayMode */
 /** @typedef {"auto" | "always" | "manual"} TopmostPolicy */
@@ -170,13 +172,21 @@ async function applyTopmostPolicy(windowRef, policy) {
     return;
   }
 
-  const fullscreen = await isForegroundFullscreen();
-  if (fullscreen) {
-    await windowRef.setAlwaysOnTop(false);
+  // In auto mode, default to topmost and let guard timer handle fullscreen suppression
+  // with hysteresis to avoid false positives from transient popup windows.
+  await liftWindowToTop(windowRef);
+}
+
+/**
+ * @param {import("@tauri-apps/api/window").Window} windowRef
+ * @param {boolean} enabled
+ */
+async function setAutoTopmostState(windowRef, enabled) {
+  if (enabled) {
+    await liftWindowToTop(windowRef);
     return;
   }
-
-  await windowRef.setAlwaysOnTop(true);
+  await windowRef.setAlwaysOnTop(false);
 }
 
 /**
@@ -450,23 +460,45 @@ export async function initDisplayWindowLayoutPersistence(role) {
 
   const unlistenFocusChanged = await appWindow.onFocusChanged(({ payload }) => {
     if (payload === false) {
-      void applyTopmostPolicy(appWindow, loadTopmostPolicy());
+      const policy = loadTopmostPolicy();
+      if (policy !== "auto") {
+        void applyTopmostPolicy(appWindow, policy);
+      }
     }
   });
 
-  /** @type {boolean | null} */
-  let lastFullscreenState = null;
+  let fullscreenTicks = 0;
+  let normalTicks = 0;
+  let autoTopmostSuppressed = false;
   const topmostGuardTimer = setInterval(() => {
     const policy = loadTopmostPolicy();
     if (policy !== "auto") {
+      fullscreenTicks = 0;
+      normalTicks = 0;
+      autoTopmostSuppressed = false;
       void applyTopmostPolicy(appWindow, policy);
       return;
     }
 
     void isForegroundFullscreen().then((isFullscreen) => {
-      if (lastFullscreenState === isFullscreen) return;
-      lastFullscreenState = isFullscreen;
-      void applyTopmostPolicy(appWindow, "auto");
+      if (isFullscreen) {
+        fullscreenTicks += 1;
+        normalTicks = 0;
+      } else {
+        normalTicks += 1;
+        fullscreenTicks = 0;
+      }
+
+      if (!autoTopmostSuppressed && fullscreenTicks >= AUTO_FULLSCREEN_ENTER_TICKS) {
+        autoTopmostSuppressed = true;
+        void setAutoTopmostState(appWindow, false);
+        return;
+      }
+
+      if (autoTopmostSuppressed && normalTicks >= AUTO_FULLSCREEN_EXIT_TICKS) {
+        autoTopmostSuppressed = false;
+        void setAutoTopmostState(appWindow, true);
+      }
     });
   }, 500);
 
@@ -479,8 +511,21 @@ export async function initDisplayWindowLayoutPersistence(role) {
 }
 
 export async function startTaskbarManualDrag() {
+  await startDisplayManualDrag("taskbar");
+}
+
+/**
+ * @param {"taskbar" | "floating"} role
+ */
+export async function startDisplayManualDrag(role) {
   const appWindow = getCurrentWindow();
   await applyTopmostPolicy(appWindow, loadTopmostPolicy());
+  try {
+    await appWindow.setFocusable(true);
+    await appWindow.setFocus();
+  } catch {
+    // Focusability is platform-dependent and non-fatal here.
+  }
   await appWindow.startDragging();
 
   const monitor = await findMonitorByPosition(await appWindow.outerPosition());
@@ -489,9 +534,9 @@ export async function startTaskbarManualDrag() {
   const layout = loadLayoutStore();
   saveLayoutStore({
     ...layout,
-    taskbar: {
-      ...layout.taskbar,
-      monitorName: monitor?.name ?? layout.taskbar?.monitorName ?? null,
+    [role]: {
+      ...layout[role],
+      monitorName: monitor?.name ?? layout[role]?.monitorName ?? null,
       x: position.x,
       y: position.y,
       width: size.width,
@@ -506,6 +551,15 @@ export async function startTaskbarManualDrag() {
  * @param {number} deltaY
  */
 export async function nudgeTaskbarPosition(deltaX, deltaY) {
+  await nudgeDisplayPosition("taskbar", deltaX, deltaY);
+}
+
+/**
+ * @param {"taskbar" | "floating"} role
+ * @param {number} deltaX
+ * @param {number} deltaY
+ */
+export async function nudgeDisplayPosition(role, deltaX, deltaY) {
   const appWindow = getCurrentWindow();
   const current = await appWindow.outerPosition();
   const targetX = current.x + deltaX;
@@ -516,9 +570,9 @@ export async function nudgeTaskbarPosition(deltaX, deltaY) {
   const layout = loadLayoutStore();
   saveLayoutStore({
     ...layout,
-    taskbar: {
-      ...layout.taskbar,
-      monitorName: monitor?.name ?? layout.taskbar?.monitorName ?? null,
+    [role]: {
+      ...layout[role],
+      monitorName: monitor?.name ?? layout[role]?.monitorName ?? null,
       x: targetX,
       y: targetY,
       manualPosition: true
@@ -530,8 +584,24 @@ export async function nudgeTaskbarPosition(deltaX, deltaY) {
  * @param {boolean} enabled
  */
 export async function setTaskbarManualPositioning(enabled) {
+  await setDisplayManualPositioning("taskbar", enabled);
+}
+
+/**
+ * @param {"taskbar" | "floating"} role
+ * @param {boolean} enabled
+ */
+export async function setDisplayManualPositioning(role, enabled) {
   const appWindow = getCurrentWindow();
   const clickThroughEnabled = loadClickThroughEnabled();
+  try {
+    await appWindow.setFocusable(enabled);
+    if (enabled) {
+      await appWindow.setFocus();
+    }
+  } catch {
+    // Focus toggling is best effort.
+  }
   if (enabled) {
     await applyTopmostPolicy(appWindow, loadTopmostPolicy());
     await setIgnoreCursorIfPossible(appWindow, false);
@@ -543,9 +613,9 @@ export async function setTaskbarManualPositioning(enabled) {
   const layout = loadLayoutStore();
   saveLayoutStore({
     ...layout,
-    taskbar: {
-      ...layout.taskbar,
-      manualPosition: enabled || layout.taskbar?.manualPosition || false
+    [role]: {
+      ...layout[role],
+      manualPosition: enabled || layout[role]?.manualPosition || false
     }
   });
 }
