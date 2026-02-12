@@ -49,6 +49,7 @@ const TEXTS = {
     topmostManual: "手动",
     clickThrough: "鼠标穿透",
     copyToNextScreen: "复制当前模式到下个屏幕",
+    resetMainLayout: "重置主窗口布局",
     preview: "样式预览",
     previewHint: "下方预览会实时同步到展示窗口"
   },
@@ -92,6 +93,7 @@ const TEXTS = {
     topmostManual: "Manual",
     clickThrough: "Click-through",
     copyToNextScreen: "Copy current mode to next screen",
+    resetMainLayout: "Reset Main Window Layout",
     preview: "Live Preview",
     previewHint: "Changes are synced to display windows in real time"
   }

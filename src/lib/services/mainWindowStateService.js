@@ -1,8 +1,16 @@
-import { availableMonitors, getCurrentWindow, PhysicalPosition, PhysicalSize } from "@tauri-apps/api/window";
+import {
+  availableMonitors,
+  currentMonitor,
+  getCurrentWindow,
+  PhysicalPosition,
+  PhysicalSize
+} from "@tauri-apps/api/window";
 
 const MAIN_LAYOUT_STORAGE_KEY = "rm.mainWindow.layout.v1";
 const MAIN_MIN_WIDTH = 1100;
 const MAIN_MIN_HEIGHT = 620;
+const MAIN_DEFAULT_WIDTH = 1140;
+const MAIN_DEFAULT_HEIGHT = 720;
 
 /**
  * @typedef {{
@@ -33,6 +41,10 @@ function loadMainLayout() {
  */
 function saveMainLayout(layout) {
   localStorage.setItem(MAIN_LAYOUT_STORAGE_KEY, JSON.stringify(layout));
+}
+
+function clearMainLayout() {
+  localStorage.removeItem(MAIN_LAYOUT_STORAGE_KEY);
 }
 
 /**
@@ -107,6 +119,29 @@ export async function restoreMainWindowLayout() {
 
   await appWindow.setSize(new PhysicalSize(width, height));
   await appWindow.setPosition(new PhysicalPosition(x, y));
+}
+
+/**
+ * Reset main window layout to defaults and clear persisted state.
+ */
+export async function resetMainWindowLayout() {
+  const appWindow = getCurrentWindow();
+  if (appWindow.label !== "main") return;
+
+  clearMainLayout();
+
+  const monitors = await availableMonitors();
+  if (!monitors.length) return;
+  const monitor = (await currentMonitor()) ?? monitors[0];
+
+  const width = clamp(MAIN_DEFAULT_WIDTH, MAIN_MIN_WIDTH, monitor.size.width);
+  const height = clamp(MAIN_DEFAULT_HEIGHT, MAIN_MIN_HEIGHT, monitor.size.height);
+  const x = Math.round(monitor.position.x + (monitor.size.width - width) / 2);
+  const y = Math.round(monitor.position.y + (monitor.size.height - height) / 2);
+
+  await appWindow.setSize(new PhysicalSize(width, height));
+  await appWindow.setPosition(new PhysicalPosition(x, y));
+  saveMainLayout({ x, y, width, height });
 }
 
 /**

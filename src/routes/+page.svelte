@@ -17,6 +17,7 @@
   import { fetchMonitorSnapshot } from "../lib/services/monitorService";
   import {
     initMainWindowLayoutPersistence,
+    resetMainWindowLayout,
     restoreMainWindowLayout
   } from "../lib/services/mainWindowStateService";
   import {
@@ -346,6 +347,10 @@
 
   async function copyCurrentModeToNextScreen() {
     await copyDisplayModeToNextMonitor(selectedDisplayMode);
+  }
+
+  async function resetMainLayout() {
+    await resetMainWindowLayout();
   }
 
   /**
@@ -790,6 +795,9 @@
             </button>
             <button class="copy-button" type="button" onclick={copyCurrentModeToNextScreen}>
               {t(selectedLanguage, "copyToNextScreen")}
+            </button>
+            <button class="copy-button" type="button" onclick={resetMainLayout}>
+              {t(selectedLanguage, "resetMainLayout")}
             </button>
           </aside>
         </div>
