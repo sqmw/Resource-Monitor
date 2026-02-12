@@ -28,6 +28,16 @@ pnpm install
 pnpm tauri dev
 ```
 
+## Windows 安装包（Inno Setup）
+
+```bash
+pnpm tauri build
+"C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\resource_monitor.iss
+```
+
+- 产物默认输出到：`dist-installer/`
+- 脚本文件：`installer/resource_monitor.iss`
+
 ## 文档
 
 - 架构说明：`docs/architecture/phase-1-overview.md`
@@ -39,3 +49,4 @@ pnpm tauri dev
 - 布局持久化与多屏恢复：`docs/changes/2026-02-12-layout-persistence-and-multimonitor.md`
 - 系统托盘与任务栏隐藏：`docs/changes/2026-02-12-system-tray-and-skip-taskbar.md`
 - 主窗口控制台与展示窗口重构：`docs/changes/2026-02-12-control-window-and-display-modes.md`
+- Inno Setup 打包脚本：`docs/changes/2026-02-12-inno-setup-packaging.md`

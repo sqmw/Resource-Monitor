@@ -112,8 +112,21 @@ async function getWindowByLabel(label) {
  * @param {import("@tauri-apps/api/window").Window} windowRef
  */
 async function liftWindowToTop(windowRef) {
+  await setAlwaysOnBottomIfPossible(windowRef, false);
   await windowRef.setAlwaysOnTop(false);
   await windowRef.setAlwaysOnTop(true);
+}
+
+/**
+ * @param {import("@tauri-apps/api/window").Window} windowRef
+ * @param {boolean} enabled
+ */
+async function setAlwaysOnBottomIfPossible(windowRef, enabled) {
+  try {
+    await windowRef.setAlwaysOnBottom(enabled);
+  } catch {
+    // Not all platforms/capabilities expose always-on-bottom.
+  }
 }
 
 /**
@@ -183,10 +196,43 @@ async function applyTopmostPolicy(windowRef, policy) {
  */
 async function setAutoTopmostState(windowRef, enabled) {
   if (enabled) {
-    await liftWindowToTop(windowRef);
+    await setAlwaysOnBottomIfPossible(windowRef, false);
+    await windowRef.setAlwaysOnTop(true);
     return;
   }
   await windowRef.setAlwaysOnTop(false);
+}
+
+/**
+ * Taskbar strip should sit above taskbar in desktop scenarios.
+ * @param {import("@tauri-apps/api/window").Window} windowRef
+ */
+async function applyTaskbarLayer(windowRef) {
+  await setAlwaysOnBottomIfPossible(windowRef, false);
+  await windowRef.setAlwaysOnTop(true);
+}
+
+/**
+ * @param {import("@tauri-apps/api/window").Window} windowRef
+ * @param {TopmostPolicy} policy
+ */
+async function applyTaskbarTopmostPolicy(windowRef, policy) {
+  await setAlwaysOnBottomIfPossible(windowRef, false);
+
+  if (policy === "manual") {
+    await windowRef.setAlwaysOnTop(false);
+    return;
+  }
+
+  if (policy === "always") {
+    await windowRef.setAlwaysOnTop(true);
+    return;
+  }
+
+  // Keep taskbar strip above taskbar in auto mode.
+  // Fullscreen suppression for taskbar is intentionally disabled because
+  // foreground fullscreen detection may false-trigger on shell surfaces.
+  await windowRef.setAlwaysOnTop(true);
 }
 
 /**
@@ -287,12 +333,17 @@ async function configureDisplayWindow(mode) {
 
   const base = DISPLAY_WINDOW_CONFIG[mode];
   await windowRef.setResizable(false);
+  await setAlwaysOnBottomIfPossible(windowRef, false);
   try {
     await windowRef.setFocusable(false);
   } catch {
     // Not all platforms support focusable changes.
   }
-  await applyTopmostPolicy(windowRef, loadTopmostPolicy());
+  if (mode === "taskbar") {
+    await applyTaskbarTopmostPolicy(windowRef, loadTopmostPolicy());
+  } else {
+    await applyTopmostPolicy(windowRef, loadTopmostPolicy());
+  }
   try {
     await windowRef.setShadow(false);
   } catch {
@@ -315,7 +366,11 @@ export async function setDisplayVisibility(mode, visible, options = {}) {
   if (visible) {
     await configureDisplayWindow(mode);
     await targetWindow.show();
-    await applyTopmostPolicy(targetWindow, loadTopmostPolicy());
+    if (mode === "taskbar") {
+      await applyTaskbarTopmostPolicy(targetWindow, loadTopmostPolicy());
+    } else {
+      await applyTopmostPolicy(targetWindow, loadTopmostPolicy());
+    }
     if (focus) {
       await targetWindow.setFocus();
     }
@@ -461,7 +516,9 @@ export async function initDisplayWindowLayoutPersistence(role) {
   const unlistenFocusChanged = await appWindow.onFocusChanged(({ payload }) => {
     if (payload === false) {
       const policy = loadTopmostPolicy();
-      if (policy !== "auto") {
+      if (role === "taskbar") {
+        void applyTaskbarTopmostPolicy(appWindow, policy);
+      } else if (policy !== "auto") {
         void applyTopmostPolicy(appWindow, policy);
       }
     }
@@ -476,7 +533,11 @@ export async function initDisplayWindowLayoutPersistence(role) {
       fullscreenTicks = 0;
       normalTicks = 0;
       autoTopmostSuppressed = false;
-      void applyTopmostPolicy(appWindow, policy);
+      if (role === "taskbar") {
+        void applyTaskbarTopmostPolicy(appWindow, policy);
+      } else {
+        void applyTopmostPolicy(appWindow, policy);
+      }
       return;
     }
 
@@ -491,13 +552,24 @@ export async function initDisplayWindowLayoutPersistence(role) {
 
       if (!autoTopmostSuppressed && fullscreenTicks >= AUTO_FULLSCREEN_ENTER_TICKS) {
         autoTopmostSuppressed = true;
-        void setAutoTopmostState(appWindow, false);
+        if (role === "taskbar") {
+          void applyTaskbarTopmostPolicy(appWindow, "auto");
+        } else {
+          void setAutoTopmostState(appWindow, false);
+        }
         return;
       }
 
       if (autoTopmostSuppressed && normalTicks >= AUTO_FULLSCREEN_EXIT_TICKS) {
         autoTopmostSuppressed = false;
-        void setAutoTopmostState(appWindow, true);
+        if (role === "taskbar") {
+          void applyTaskbarTopmostPolicy(appWindow, "auto");
+        } else {
+          void setAutoTopmostState(appWindow, true);
+        }
+      } else if (role === "taskbar" && !autoTopmostSuppressed) {
+        // Keep taskbar strip above taskbar when not fullscreen.
+        void applyTaskbarTopmostPolicy(appWindow, "auto");
       }
     });
   }, 500);
@@ -519,7 +591,11 @@ export async function startTaskbarManualDrag() {
  */
 export async function startDisplayManualDrag(role) {
   const appWindow = getCurrentWindow();
-  await applyTopmostPolicy(appWindow, loadTopmostPolicy());
+  if (role === "taskbar") {
+    await applyTaskbarLayer(appWindow);
+  } else {
+    await applyTopmostPolicy(appWindow, loadTopmostPolicy());
+  }
   try {
     await appWindow.setFocusable(true);
     await appWindow.setFocus();
@@ -603,10 +679,18 @@ export async function setDisplayManualPositioning(role, enabled) {
     // Focus toggling is best effort.
   }
   if (enabled) {
-    await applyTopmostPolicy(appWindow, loadTopmostPolicy());
+    if (role === "taskbar") {
+      await applyTaskbarLayer(appWindow);
+    } else {
+      await applyTopmostPolicy(appWindow, loadTopmostPolicy());
+    }
     await setIgnoreCursorIfPossible(appWindow, false);
   } else {
-    await applyTopmostPolicy(appWindow, loadTopmostPolicy());
+    if (role === "taskbar") {
+      await applyTaskbarTopmostPolicy(appWindow, loadTopmostPolicy());
+    } else {
+      await applyTopmostPolicy(appWindow, loadTopmostPolicy());
+    }
     await setIgnoreCursorIfPossible(appWindow, clickThroughEnabled);
   }
 
@@ -628,9 +712,10 @@ export async function applyTopmostPolicyToDisplays(policy) {
   const taskbarWindow = await getWindowByLabel("taskbar");
   const floatingWindow = await getWindowByLabel("floating");
   if (taskbarWindow) {
-    await applyTopmostPolicy(taskbarWindow, policy);
+    await applyTaskbarTopmostPolicy(taskbarWindow, policy);
   }
   if (floatingWindow) {
+    await setAlwaysOnBottomIfPossible(floatingWindow, false);
     await applyTopmostPolicy(floatingWindow, policy);
   }
 }

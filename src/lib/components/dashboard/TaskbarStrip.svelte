@@ -18,15 +18,38 @@
     onStartPositioning = () => {},
     onNudgePosition = () => {}
   } = $props();
+
+  /**
+   * Keep taskbar readable by avoiding ultra-transparent backgrounds in auto mode.
+   * @param {number} value
+   * @param {string} mode
+   */
+  function resolveSurfaceAlpha(value, mode) {
+    const normalized = Math.max(0, Math.min(100, value)) / 100;
+    if (mode === "auto" && normalized === 0) {
+      return 0;
+    }
+    return mode === "auto" ? Math.max(0.2, normalized) : normalized;
+  }
+
+  /**
+   * Blur sampling can shift perceived brightness; disable in auto mode for stability.
+   * @param {number} value
+   * @param {string} mode
+   * @param {number} opacity
+   */
+  function resolveFrostedBlur(value, mode, opacity) {
+    if (opacity <= 0) return 0;
+    const normalized = Math.max(0, Math.min(30, value));
+    return mode === "auto" ? Math.min(8, normalized) : normalized;
+  }
 </script>
 
 <section
   class:auto-contrast={textContrastMode === "auto"}
-  class:auto-dark={textContrastMode === "auto" && contrastTone === "dark"}
-  class:auto-light={textContrastMode === "auto" && contrastTone !== "dark"}
   class:editing={editMode}
   class="strip"
-  style={`--rm-surface-alpha:${Math.max(0, Math.min(100, surfaceOpacity)) / 100};--rm-frosted-blur:${Math.max(0, Math.min(30, frostedBlur))}px;--rm-pad-x:${Math.max(2, Math.min(14, layout?.paddingX ?? 7))}px;--rm-pad-y:${Math.max(0, Math.min(4, layout?.paddingY ?? 2))}px;--rm-col-gap:${Math.max(2, Math.min(12, layout?.columnGap ?? 5))}px;--rm-group-gap:${Math.max(0, Math.min(20, layout?.groupGap ?? 6))}px;--rm-font-size:${Math.max(10, Math.min(15, layout?.fontSize ?? 12))}px;--rm-contrast-refresh:${Math.max(0, contrastRefreshTick % 1000000)};`}
+  style={`--rm-surface-alpha:${resolveSurfaceAlpha(surfaceOpacity, textContrastMode)};--rm-frosted-blur:${resolveFrostedBlur(frostedBlur, textContrastMode, surfaceOpacity)}px;--rm-pad-x:${Math.max(2, Math.min(14, layout?.paddingX ?? 7))}px;--rm-pad-y:${Math.max(0, Math.min(4, layout?.paddingY ?? 2))}px;--rm-col-gap:${Math.max(2, Math.min(12, layout?.columnGap ?? 5))}px;--rm-group-gap:${Math.max(0, Math.min(20, layout?.groupGap ?? 6))}px;--rm-font-size:${Math.max(10, Math.min(15, layout?.fontSize ?? 12))}px;--rm-contrast-refresh:${Math.max(0, contrastRefreshTick % 1000000)};`}
   ondblclick={() => onDoubleClick?.()}
   role="button"
   tabindex="0"
@@ -91,9 +114,9 @@
     user-select: none;
     cursor: default;
     outline: none;
-    --rm-text-color: rgba(246, 250, 255, 0.98);
-    --rm-time-color: rgba(233, 242, 252, 0.96);
-    --rm-text-shadow: 0 1px 1px rgba(0, 0, 0, 0.42);
+    --rm-text-color: rgba(255, 255, 255, 0.99);
+    --rm-time-color: rgba(255, 255, 255, 0.99);
+    --rm-text-shadow: 0 1px 1px rgba(0, 0, 0, 0.95), 0 0 2px rgba(0, 0, 0, 0.84);
   }
 
   .strip.editing {
@@ -104,7 +127,7 @@
 
   .strip:not(.editing) {
     background: rgba(7, 18, 27, var(--rm-surface-alpha));
-    backdrop-filter: blur(var(--rm-frosted-blur)) saturate(125%);
+    backdrop-filter: blur(var(--rm-frosted-blur)) saturate(112%);
     border-color: transparent;
   }
 
@@ -122,7 +145,7 @@
 
   .metrics-grid > span {
     font-size: var(--rm-font-size);
-    font-weight: 700;
+    font-weight: 760;
     line-height: 1.02;
     display: flex;
     align-items: center;
@@ -134,26 +157,24 @@
   }
 
   .strip.auto-contrast {
-    --rm-auto-color: rgba(244, 250, 255, 0.98);
-    --rm-auto-shadow: 0 1px 1px rgba(0, 0, 0, 0.58);
-  }
-
-  .strip.auto-contrast.auto-dark {
-    --rm-auto-color: rgba(10, 18, 27, 0.96);
-    --rm-auto-shadow: 0 1px 1px rgba(246, 250, 255, 0.56);
+    --rm-auto-color: rgba(255, 255, 255, 1);
+    --rm-auto-shadow: 0 1px 1px rgba(0, 0, 0, 0.98), 0 0 2.2px rgba(0, 0, 0, 0.88);
   }
 
   .strip.auto-contrast .metrics-grid > span {
     color: var(--rm-auto-color);
     text-shadow: var(--rm-auto-shadow);
+    -webkit-text-stroke: 0;
+    font-weight: 820;
     transform: translateZ(calc(var(--rm-contrast-refresh) * 0px));
   }
 
   .metric-label {
-    opacity: 0.96;
+    opacity: 1;
     text-align: left;
     white-space: nowrap;
     overflow: visible;
+    font-weight: 760;
   }
 
   .metric-label-group-2 {
@@ -166,6 +187,7 @@
     white-space: nowrap;
     text-align: left;
     min-width: 0;
+    font-weight: 850;
   }
 
   .time {

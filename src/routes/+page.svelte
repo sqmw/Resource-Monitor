@@ -11,6 +11,7 @@
   import TopmostPolicyPicker from "../lib/components/dashboard/TopmostPolicyPicker.svelte";
   import LanguagePicker from "../lib/components/dashboard/LanguagePicker.svelte";
   import ViewModePicker from "../lib/components/dashboard/ViewModePicker.svelte";
+  import StartupToggle from "../lib/components/dashboard/StartupToggle.svelte";
   import TaskbarStrip from "../lib/components/dashboard/TaskbarStrip.svelte";
   import FloatingPanel from "../lib/components/dashboard/FloatingPanel.svelte";
   import WindowFrame from "../lib/components/window/WindowFrame.svelte";
@@ -41,6 +42,10 @@
     setDisplayManualPositioning,
     startDisplayManualDrag
   } from "../lib/services/windowModeService";
+  import {
+    getLaunchAtStartupEnabled,
+    setLaunchAtStartupEnabled
+  } from "../lib/services/startupService";
   import {
     formatCompactBytes,
     formatCompactRate,
@@ -101,6 +106,9 @@
   /** @type {TopmostPolicy} */
   let topmostPolicy = $state("auto");
   let clickThroughEnabled = $state(false);
+  let launchAtStartupEnabled = $state(false);
+  let launchAtStartupLoading = $state(false);
+  let launchAtStartupError = $state("");
   let errorMessage = $state("");
   let displayPositionEditMode = $state(false);
 
@@ -161,6 +169,11 @@
   async function refreshDisplayContrastTone() {
     if (textContrastMode !== "auto") return;
     if (!isTaskbarWindow && !isFloatingWindow) return;
+    if (isTaskbarWindow) {
+      displayContrastTone = "light";
+      contrastRefreshTick = (contrastRefreshTick + 1) % 1000000;
+      return;
+    }
 
     const sampledLuminance = await sampleCurrentWindowBackdropLuminance();
     displayContrastTone = resolveContrastTone(sampledLuminance, displayContrastTone);
@@ -332,6 +345,37 @@
     await applyClickThroughToDisplays(clickThroughEnabled);
   }
 
+  async function refreshLaunchAtStartup() {
+    if (!isMainWindow) return;
+    launchAtStartupLoading = true;
+    try {
+      launchAtStartupEnabled = await getLaunchAtStartupEnabled();
+      launchAtStartupError = "";
+    } catch (error) {
+      launchAtStartupError = String(error);
+    } finally {
+      launchAtStartupLoading = false;
+    }
+  }
+
+  /**
+   * @param {boolean} enabled
+   */
+  async function selectLaunchAtStartup(enabled) {
+    const previous = launchAtStartupEnabled;
+    launchAtStartupEnabled = enabled;
+    launchAtStartupLoading = true;
+    try {
+      await setLaunchAtStartupEnabled(enabled);
+      launchAtStartupError = "";
+    } catch (error) {
+      launchAtStartupEnabled = previous;
+      launchAtStartupError = String(error);
+    } finally {
+      launchAtStartupLoading = false;
+    }
+  }
+
   /**
    * @param {DisplayMode} mode
    */
@@ -477,6 +521,7 @@
         .then(() => applyTopmostPolicyToDisplays(topmostPolicy))
         .then(() => applyClickThroughToDisplays(clickThroughEnabled))
         .then(() => broadcastPreferences());
+      void refreshLaunchAtStartup();
       void initMainWindowLayoutPersistence().then((cleanup) => {
         disposeMainLayoutPersistence = cleanup;
       });
@@ -790,6 +835,18 @@
               selectedPolicy={topmostPolicy}
               onSelect={selectTopmostPolicy}
             />
+            <StartupToggle
+              label={t(selectedLanguage, "launchAtStartup")}
+              hint={t(selectedLanguage, "launchAtStartupHint")}
+              enabled={launchAtStartupEnabled}
+              loading={launchAtStartupLoading}
+              onLabel={t(selectedLanguage, "enabled")}
+              offLabel={t(selectedLanguage, "disabled")}
+              onToggle={selectLaunchAtStartup}
+            />
+            {#if launchAtStartupError}
+              <p class="control-error">{launchAtStartupError}</p>
+            {/if}
             <button class="copy-button" type="button" onclick={toggleClickThrough}>
               {t(selectedLanguage, "clickThrough")}: {clickThroughEnabled ? "ON" : "OFF"}
             </button>
@@ -939,6 +996,12 @@
     background: rgba(255, 255, 255, 0.08);
     padding: 0.28rem 0.56rem;
     font-size: 0.74rem;
+  }
+
+  .control-error {
+    font-size: 0.68rem;
+    color: var(--danger);
+    opacity: 0.95;
   }
 
   .eyebrow {

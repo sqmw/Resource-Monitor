@@ -1,4 +1,5 @@
 mod monitor;
+mod startup;
 mod window_contrast;
 mod window_policy;
 
@@ -27,7 +28,13 @@ fn toggle_display_window(app: &tauri::AppHandle, mode: &str) {
 
         if next_visible {
             let _ = window.show();
-            let _ = window.set_always_on_top(true);
+            if mode == "taskbar" {
+                let _ = window.set_always_on_bottom(false);
+                let _ = window.set_always_on_top(true);
+            } else {
+                let _ = window.set_always_on_bottom(false);
+                let _ = window.set_always_on_top(true);
+            }
         } else {
             let _ = window.hide();
         }
@@ -175,6 +182,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             monitor::commands::get_monitor_snapshot,
+            startup::get_launch_at_startup_enabled,
+            startup::set_launch_at_startup_enabled,
             window_contrast::sample_backdrop_luminance,
             window_policy::is_foreground_fullscreen
         ])
